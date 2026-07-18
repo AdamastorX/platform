@@ -2,3 +2,10 @@
 *.swp
 .idea/
 .vscode/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+terraform/kubeconfig
