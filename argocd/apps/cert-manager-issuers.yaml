@@ -13,7 +13,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/AdamastorX/platform
-    targetRevision: feat/traefik-cert-manager
+    targetRevision: main
     path: kubernetes/cert-manager-issuers
   destination:
     server: https://kubernetes.default.svc
