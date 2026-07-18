@@ -1,0 +1,33 @@
+# cert-manager: issues and renews TLS certificates in-cluster.
+# Issuers live in a separate app (cert-manager-issuers.yaml) so the
+# operator install and our CA config stay independently syncable.
+# Config rationale: ../README.md#cert-manager.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.21.0
+    helm:
+      valuesObject:
+        crds:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # cert-manager CRDs blow past the 256KB client-side apply
+      # annotation limit — same lesson as the ArgoCD install (PR #8).
+      - ServerSideApply=true
