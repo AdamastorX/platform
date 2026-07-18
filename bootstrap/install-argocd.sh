@@ -16,7 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Installing ArgoCD ${ARGOCD_VERSION} (non-HA) into namespace 'argocd'"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f "${INSTALL_URL}"
+# --server-side: the applicationsets.argoproj.io CRD is too large for
+# client-side apply (last-applied-configuration annotation > 256KB).
+kubectl apply --server-side -n argocd -f "${INSTALL_URL}"
 
 echo "==> Waiting for ArgoCD deployments to become available"
 kubectl wait --for=condition=Available deployment --all -n argocd --timeout=300s
