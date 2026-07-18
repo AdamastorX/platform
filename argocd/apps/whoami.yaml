@@ -10,7 +10,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/AdamastorX/platform
-    targetRevision: feat/argocd-bootstrap
+    targetRevision: main
     path: kubernetes/whoami
   destination:
     server: https://kubernetes.default.svc
