@@ -10,7 +10,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/AdamastorX/platform
-    targetRevision: main
+    targetRevision: feat/traefik-cert-manager
     path: kubernetes/whoami
   destination:
     server: https://kubernetes.default.svc
