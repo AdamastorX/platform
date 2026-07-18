@@ -1,0 +1,30 @@
+# Project-local certificate issuers (self-signed bootstrap CA).
+# Separate from the cert-manager app: these are cert-manager *CRs*, which
+# can only sync after the operator's CRDs and webhook are up — the retry
+# block below rides out that window on a fresh cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-issuers
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/cert-manager-issuers
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 2m

@@ -6,4 +6,5 @@ each is deployed by a matching ArgoCD `Application` under
 
 | Dir | What |
 |---|---|
-| `whoami/` | Trivial GitOps proof app (`traefik/whoami` Deployment + ClusterIP Service) |
+| `whoami/` | Trivial GitOps proof app (`traefik/whoami` Deployment + ClusterIP Service + TLS Ingress) |
+| `cert-manager-issuers/` | Project CA: self-signed bootstrap CA + `adamastorx-ca` ClusterIssuer (see its README for why not Let's Encrypt) |

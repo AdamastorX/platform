@@ -1,0 +1,65 @@
+# Traefik ingress controller. k3s's bundled Traefik is disabled
+# (--disable traefik), so this is the GitOps-managed replacement.
+# Helm chart source with values inline — split into a values file only
+# if this grows. Config rationale: ../README.md#traefik.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 41.0.2
+    helm:
+      valuesObject:
+        # No ServiceLB (k3s --disable servicelb) and no cloud LB: a
+        # LoadBalancer Service would sit <pending> forever. Traffic enters
+        # via hostPort below; the Service stays ClusterIP for in-cluster use.
+        service:
+          spec:
+            type: ClusterIP
+        # Single node, host ports 80/443 free: bind them directly.
+        # Real ports, no :3xxxx NodePort noise. Revisit if the cluster
+        # ever gains more nodes or a load balancer.
+        ports:
+          web:
+            hostPort: 80
+          websecure:
+            hostPort: 443
+        # hostPort + single node: the chart's default RollingUpdate
+        # (maxSurge 1) can never schedule the surge pod — the port is
+        # already bound — and upgrades deadlock. Brief downtime instead.
+        updateStrategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 0
+            maxUnavailable: 1
+        providers:
+          kubernetesIngress:
+            # publishedService copies the LoadBalancer status of Traefik's
+            # Service onto Ingresses — a ClusterIP Service has none, so
+            # Ingress .status would stay empty and ArgoCD would report the
+            # owning app Progressing forever. Publish the node IP instead.
+            # Status-only cosmetics: traffic reaches Traefik via hostPort
+            # on whatever IP the node actually has.
+            publishedService:
+              enabled: false
+            ingressEndpoint:
+              ip: 192.168.1.10
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Chart ships CRDs approaching the 256KB client-side annotation
+      # limit (traefikservices ~96KB); server-side apply avoids the cliff.
+      - ServerSideApply=true
