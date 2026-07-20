@@ -1,0 +1,25 @@
+# First deploy of the gateway service (services#1 AC "deploys via the M1
+# pipeline") — bootstraps its existence in-cluster per ADR 0009. Future
+# SHA bumps are one-line image-tag diffs to kubernetes/gateway/deployment.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/gateway
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gateway
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

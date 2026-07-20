@@ -1,0 +1,38 @@
+# Exposes gateway through Traefik with TLS from the project CA, same
+# pattern as whoami (platform#3). No public DNS: resolve the host locally,
+# e.g.
+#   curl --resolve gateway.local.adamastorx.dev:443:127.0.0.1 \
+#        --cacert adamastorx-ca.crt https://gateway.local.adamastorx.dev/
+# (CA export: see ../cert-manager-issuers/README.md)
+#
+# gateway is a JVM service (Spring Boot) — cold start is slower than
+# whoami's, so give it time before expecting 2xx: the Deployment's
+# readinessProbe already accounts for this with initialDelaySeconds: 20,
+# but a freshly-rolled pod may still take longer to pass than whoami ever
+# did.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+  annotations:
+    # ingress-shim creates/renews the 'gateway-tls' Certificate for us.
+    cert-manager.io/cluster-issuer: adamastorx-ca
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: gateway.local.adamastorx.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - gateway.local.adamastorx.dev
+      secretName: gateway-tls
