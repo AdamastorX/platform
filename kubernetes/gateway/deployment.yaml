@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          # Image tag is the services repo's commit SHA (ADR 0008/0009) —
+          # bump this one line and open a PR to deploy a new build.
+          image: ghcr.io/adamastorx/gateway:2a5de0f4c29d0bb59082f8dca83afaac5a29793b
+          ports:
+            - name: http
+              containerPort: 8080
+          # Spring Boot Actuator health groups (application.yml enables
+          # management.endpoint.health.probes) — JVM cold start is slower
+          # than whoami's, hence the longer initialDelaySeconds.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
