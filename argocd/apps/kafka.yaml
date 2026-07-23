@@ -1,0 +1,82 @@
+# Kafka broker for services#3 (ADR 0011: single-broker, combined
+# controller+broker KRaft mode — no ZooKeeper). Helm chart source with
+# values inline, same pattern as traefik/cert-manager. Broker only: the
+# `workers` consumer service deploys separately once its image is
+# published. Config rationale: ../README.md#kafka.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kafka
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: kafka
+    targetRevision: 32.4.3
+    helm:
+      valuesObject:
+        # Bitnami's public docker.io/bitnami/* catalog stopped publishing
+        # versioned tags in Aug 2025 (Bitnami Secure Images transition) —
+        # this chart's own default image (docker.io/bitnami/kafka:4.0.0-
+        # debian-12-r10) 404s. docker.io/bitnamilegacy/* still hosts that
+        # exact tag, frozen (no further security patches, ever). Acceptable
+        # for a dev-only, ClusterIP-only broker; flagged here for human
+        # review since it's an assumption, not a verified-forever fact.
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/kafka
+          tag: 4.0.0-debian-12-r10
+        # Single broker, combined controller+broker KRaft process (ADR
+        # 0011). broker.replicaCount stays 0 (default): dedicated
+        # broker-only nodes are a separate pool this chart supports but we
+        # don't use — one node plays both roles.
+        controller:
+          replicaCount: 1
+          resourcesPreset: small
+          persistence:
+            # Small single-node dev cluster, no durability requirement yet
+            # (ADR 0011 accepts topic data loss on restart) — emptyDir over
+            # a PVC keeps this dependency-free; revisit if that trade ever
+            # needs to change.
+            enabled: false
+        broker:
+          replicaCount: 0
+        # Chart defaults every listener to SASL_PLAINTEXT with generated
+        # credentials. Nothing outside the cluster ever talks to Kafka
+        # (ClusterIP only, no externalAccess) and there's no service mesh
+        # (PROJECT.md excludes one) — same trust model gateway/api already
+        # use for each other (ADR 0010, no auth between in-cluster
+        # services). PLAINTEXT avoids standing up Secret-based credential
+        # rotation for a dev broker nothing external can reach.
+        listeners:
+          client:
+            protocol: PLAINTEXT
+          controller:
+            protocol: PLAINTEXT
+          interbroker:
+            protocol: PLAINTEXT
+        service:
+          type: ClusterIP
+        externalAccess:
+          enabled: false
+        # Declarative topic provisioning via the chart's built-in Job —
+        # simplest option that satisfies ADR 0011's work-items topic
+        # (3 partitions, RF=1) without a hand-written Job manifest.
+        provisioning:
+          enabled: true
+          topics:
+            - name: work-items
+              partitions: 3
+              replicationFactor: 1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kafka
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
