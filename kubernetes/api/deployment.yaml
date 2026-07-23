@@ -1,34 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gateway
+  name: api
   labels:
-    app: gateway
+    app: api
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: gateway
+      app: api
   template:
     metadata:
       labels:
-        app: gateway
+        app: api
     spec:
       containers:
-        - name: gateway
+        - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/gateway:8337d50827be86437992303431ef23a58f0de663
+          image: ghcr.io/adamastorx/api:8337d50827be86437992303431ef23a58f0de663
           ports:
             - name: http
               containerPort: 8080
-          # Runtime address of the api Service, injected per ADR 0010
-          # ("platform owns the runtime address") — matches the
-          # application.yml default (api.base-url) but is set explicitly
-          # here rather than relying on that default.
-          env:
-            - name: API_SERVICE_URL
-              value: http://api.api.svc.cluster.local
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
           # than whoami's, hence the longer initialDelaySeconds.

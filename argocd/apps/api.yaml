@@ -1,0 +1,27 @@
+# First deploy of the api service (services#2 AC "deploys via the M1
+# pipeline") — bootstraps its existence in-cluster per ADR 0009. ClusterIP
+# only, no Ingress: api is never externally reachable except through the
+# gateway's forwarding controller (ADR 0010). Future SHA bumps are one-line
+# image-tag diffs to kubernetes/api/deployment.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/api
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: api
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
