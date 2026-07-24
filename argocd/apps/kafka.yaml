@@ -72,7 +72,19 @@ spec:
         # cluster's reality (ADR 0011); these three just extend that to
         # Kafka's own internal bookkeeping topics instead of leaving them
         # on the multi-broker-cluster default.
-        config:
+        #
+        # overrideConfiguration, not config: the chart's
+        # controller-eligible ConfigMap template only emits its own
+        # auto-derived base config (process.roles, listeners, log.dir,
+        # ...) when `config`/`controller.config` is UNSET -- setting
+        # either one replaces the whole server.properties with exactly
+        # what's given here, wholesale, no merge. Learned this by
+        # crash-looping the broker: `config:` with just these 3 lines
+        # produced a server.properties with only these 3 lines, and
+        # kafka-storage.sh format died on "Missing required configuration
+        # process.roles". overrideConfiguration merges on top of the
+        # generated base instead.
+        overrideConfiguration:
           offsets.topic.replication.factor: 1
           transaction.state.log.replication.factor: 1
           transaction.state.log.min.isr: 1
