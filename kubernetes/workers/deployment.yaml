@@ -23,7 +23,7 @@ spec:
         - name: workers
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/workers:e50d61fa69885f3625328dd2c4f543850216e695
+          image: ghcr.io/adamastorx/workers:cc50af03777c8934fc36a08b1ffa20a4ca52a127
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011) —
             # workers has no business HTTP API, this exists solely so
@@ -33,6 +33,8 @@ spec:
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
           # than whoami's, hence the longer initialDelaySeconds.
