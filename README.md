@@ -4,9 +4,12 @@ Infrastructure for AdamastorX: Terraform, Helm, ArgoCD, Kubernetes manifests,
 cluster bootstrap. No application code here — see
 [services](https://github.com/AdamastorX/services).
 
-Milestone **M1 Platform Bootstrap** in progress: k3s is provisioned via
-`terraform/` and ArgoCD (installed via `bootstrap/`) reconciles the cluster
-against this repo's `main` — all cluster changes flow through Git. See the
+**M1 Platform Bootstrap** is complete; **M2 Distributed Application** is in
+progress. k3s is provisioned via `terraform/`, and ArgoCD (installed via
+`bootstrap/`) reconciles the cluster against this repo's `main` — all
+cluster changes flow through Git. Gateway, API, workers, Kafka, and
+PostgreSQL are deployed here today (`kubernetes/` + `argocd/apps/`); Redis
+is the remaining M2 item. See the
 [adamastorx](https://github.com/AdamastorX/adamastorx) repo's
 `docs/roadmap/backlog.md` for the roadmap.
 
