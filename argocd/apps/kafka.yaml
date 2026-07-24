@@ -2,7 +2,7 @@
 # controller+broker KRaft mode — no ZooKeeper). Helm chart source with
 # values inline, same pattern as traefik/cert-manager. Broker only: the
 # `workers` consumer service deploys separately once its image is
-# published. Config rationale: ../README.md#kafka.
+# published. Config rationale inline below and in ADR 0011.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -84,10 +84,26 @@ spec:
         # kafka-storage.sh format died on "Missing required configuration
         # process.roles". overrideConfiguration merges on top of the
         # generated base instead.
+        #
+        # auto.create.topics.enable: false -- api/workers both connect
+        # with allow.auto.create.topics=true (spring-kafka client
+        # default) and previously raced the provisioning Job below: on
+        # every fresh broker (podrecreate, no persistence), whichever
+        # got there first created work-items with the *broker's* default
+        # partition count (1), not the 3 this topic actually needs
+        # (ADR 0011) -- the Job's --if-not-exists then silently no-op'd.
+        # Forcing topic creation through the Job (the only thing this
+        # setting doesn't block) makes that race impossible instead of
+        # needing a manual kafka-topics.sh --alter after the fact, which
+        # is what happened the first time this was hit. Internal topics
+        # (__consumer_offsets, __transaction_state) are unaffected --
+        # the group/transaction coordinators create those themselves
+        # regardless of this setting.
         overrideConfiguration:
           offsets.topic.replication.factor: 1
           transaction.state.log.replication.factor: 1
           transaction.state.log.min.isr: 1
+          auto.create.topics.enable: false
         # Declarative topic provisioning via the chart's built-in Job —
         # simplest option that satisfies ADR 0011's work-items topic
         # (3 partitions, RF=1) without a hand-written Job manifest.
