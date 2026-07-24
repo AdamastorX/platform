@@ -1,0 +1,66 @@
+# OpenTelemetry Collector for observability#1 (ADR 0013). Official
+# open-telemetry Helm chart (not Bitnami — no registry-migration
+# workaround needed, verified against Docker Hub directly), same
+# inline-valuesObject pattern as Kafka/Postgres. Traces only for now:
+# metrics stay on each service's /actuator/prometheus scrape endpoint
+# (backlog #18), logs stay in console output until Loki (#19) — routing
+# either through this Collector today would be reaching ahead of those
+# deliberately separate steps.
+#
+# Own `otel` namespace (ADR 0009's per-component pattern, same reasoning
+# as Kafka): three consumers (gateway, api, workers all push to it), and
+# no credential to worry about — the OTLP receiver is open to the
+# cluster like Kafka's PLAINTEXT listener, nothing outside the cluster
+# reaches it. Unlike Postgres, there's no secretKeyRef cross-namespace
+# problem here to force it into a consumer's own namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: 0.165.0
+    helm:
+      valuesObject:
+        # fullnameOverride keeps the Service name short and predictable
+        # (otel-collector.otel.svc.cluster.local) instead of the chart's
+        # default <release>-<chart> concatenation.
+        fullnameOverride: otel-collector
+        mode: deployment
+        image:
+          # Core distribution, not -contrib: the only components this
+          # needs (otlp receiver, batch/memory_limiter processors,
+          # debug exporter) are all in core, and the chart's default
+          # config already wires exactly that trace pipeline —
+          # verified by rendering the chart locally against these
+          # exact values before writing this file.
+          repository: otel/opentelemetry-collector
+        command:
+          name: otelcol
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+        # config left at the chart's defaults deliberately: the traces
+        # pipeline (otlp -> memory_limiter,batch -> debug) is exactly
+        # what's needed. The unused jaeger/zipkin receivers and the
+        # metrics/logs pipelines are inert (ClusterIP only, nothing
+        # sends to those ports) and not worth fighting Helm's
+        # null-based config trimming to remove for a marginal cleanup.
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: otel
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
