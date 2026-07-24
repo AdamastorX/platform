@@ -5,12 +5,12 @@ metadata:
   labels:
     app: workers
 spec:
-  # Temporarily 3 to capture services#3's AC: consumer-group rebalance
-  # across multiple replicas against the real single-broker cluster (ADR
-  # 0011 asks for this proven with real logs, not just the embedded-Kafka
-  # unit test). Revert to 1 once captured — this is a one-time
-  # demonstration, not the steady-state replica count.
-  replicas: 3
+  # 3-partition/3-replica rebalance captured (services#3 AC, ADR 0011):
+  # scaling to 3 replicas assigned each one exactly one partition
+  # (generation 6: work-items-0/1/2 -> one consumer each, real cluster,
+  # not the embedded-Kafka unit test). Back to 1 as the steady-state
+  # count for this small dev cluster.
+  replicas: 1
   selector:
     matchLabels:
       app: workers
