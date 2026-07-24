@@ -18,13 +18,25 @@ spec:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/api:e50d61fa69885f3625328dd2c4f543850216e695
+          image: ghcr.io/adamastorx/api:3d81c9192186663399d579ba767e8d5317c0f23d
           ports:
             - name: http
               containerPort: 8080
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgresql.api.svc.cluster.local:5432/api
+            # Username isn't a secret (just a Postgres role name) --
+            # only the password lives in the chart-generated Secret
+            # (services#4, ADR 0012).
+            - name: SPRING_DATASOURCE_USERNAME
+              value: api
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql
+                  key: password
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
           # than whoami's, hence the longer initialDelaySeconds.

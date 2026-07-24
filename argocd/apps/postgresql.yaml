@@ -1,0 +1,69 @@
+# PostgreSQL for services#4 (ADR 0012). Helm chart source with values
+# inline, same pattern as Kafka/Traefik/cert-manager. Single instance,
+# no read replicas, ClusterIP only -- api reaches it through Kubernetes
+# Service DNS (postgresql.api.svc.cluster.local), same trust model as
+# every other in-cluster service here (no auth between services,
+# ADR 0010).
+#
+# Deployed into api's namespace, not its own -- unlike Kafka (two
+# consumers, api and workers, and no credential at all since it's
+# PLAINTEXT), Postgres has exactly one consumer and does need a
+# password: the chart's generated Secret has to live in the same
+# namespace as the Deployment reading it via secretKeyRef, which
+# can't cross namespaces (ADR 0012).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgresql
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: postgresql
+    targetRevision: 16.2.1
+    helm:
+      valuesObject:
+        # Same docker.io/bitnami/* -> docker.io/bitnamilegacy/* registry
+        # swap ADR 0011 already needed for Kafka (Bitnami Secure Images
+        # transition, Aug 2025) -- re-verified for this chart/tag
+        # specifically against Docker Hub's registry API, not assumed
+        # from precedent alone.
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/postgresql
+          tag: 17.1.0-debian-12-r0
+        auth:
+          # A dedicated least-privilege user + database, not the
+          # postgres superuser (ADR 0012). auth.password left unset --
+          # the chart generates a random one into a Secret
+          # (common.secrets.passwords.manage, confirmed by reading the
+          # chart's own templates/secrets.yaml) under key "password",
+          # which api's Deployment reads via secretKeyRef. No credential
+          # ever lives in git.
+          username: api
+          database: api
+        primary:
+          resourcesPreset: small
+          persistence:
+            # A real PVC, not emptyDir -- the one deliberate break from
+            # Kafka's precedent (ADR 0011 explicitly accepted losing
+            # topic data on restart; "durable state" for Postgres needs
+            # to actually mean something). storageClass left at the
+            # chart's empty-string default, which resolves to the
+            # cluster's default StorageClass -- k3s ships `local-path`
+            # as that default already, no new provisioner needed.
+            size: 2Gi
+        service:
+          type: ClusterIP
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: api
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
