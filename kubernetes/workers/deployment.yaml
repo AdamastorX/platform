@@ -1,25 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api
+  name: workers
   labels:
-    app: api
+    app: workers
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: api
+      app: workers
   template:
     metadata:
       labels:
-        app: api
+        app: workers
     spec:
       containers:
-        - name: api
+        - name: workers
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/api:e50d61fa69885f3625328dd2c4f543850216e695
+          image: ghcr.io/adamastorx/workers:e50d61fa69885f3625328dd2c4f543850216e695
           ports:
+            # No Kubernetes Service for this port (ADR 0009/0011) —
+            # workers has no business HTTP API, this exists solely so
+            # actuator's health probes below have something to hit.
             - name: http
               containerPort: 8080
           env:

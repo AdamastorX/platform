@@ -1,0 +1,27 @@
+# First deploy of the workers service (services#3 AC "a message produced
+# by API is consumed by a worker") — bootstraps its existence in-cluster
+# per ADR 0009. No Service (ADR 0011: workers has no business HTTP API,
+# nothing calls it — it only consumes from Kafka). Future SHA bumps are
+# one-line image-tag diffs to kubernetes/workers/deployment.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workers
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/workers
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: workers
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
