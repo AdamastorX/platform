@@ -1,0 +1,108 @@
+# Redis for services#5 (ADR 0016). Helm chart source with values inline,
+# same pattern as Kafka/Postgres. Cache-aside layer in front of
+# PostgreSQL for GET /work-items/{id} -- api is the sole consumer.
+#
+# Deployed into api's namespace, not its own -- same reasoning ADR 0012
+# already used for Postgres, not Kafka/OTel Collector's own-namespace
+# treatment: one consumer (api) and a real credential (auth.enabled,
+# chart-generated Secret) whose secretKeyRef can't cross namespaces.
+# Redis being "just a cache" doesn't change that reasoning -- credential
+# + single consumer is what matters here, not durability.
+#
+# architecture: standalone, not the chart's own `replication` default
+# (3 replicas) -- this is a single-node dev cluster with one consumer,
+# so replicating a cache nothing else reads from would be pure overhead,
+# and it sidesteps the same "single-instance chart still needs
+# replication-aware settings" trap Loki's replication_factor hit
+# (observability#3) by not opting into a multi-replica architecture at
+# all instead of trying to tune one down to one node.
+#
+# No PersistentVolumeClaim -- the one deliberate difference from
+# Postgres's "durable state gets a real PVC" precedent (ADR 0012), and
+# on purpose, not an oversight: cache-aside means PostgreSQL is the
+# only source of truth here, and services#5's own AC (a Redis outage
+# fails the read open to PostgreSQL, not the request) requires being
+# comfortable with Redis losing all state at any time. Adding a PVC
+# would work against the exact behaviour this deployment exists to
+# demonstrate. Confirmed via `helm template` that
+# master.persistence.enabled: false renders no PVC and backs /data with
+# emptyDir instead -- the chart's own default redis.conf still turns on
+# AOF file persistence (harmless: it writes into that same emptyDir, so
+# it doesn't survive a pod restart either -- not worth fighting the
+# chart default to disable it for a cache that's ephemeral by design
+# regardless).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: redis
+    targetRevision: 23.1.1
+    helm:
+      valuesObject:
+        # Same docker.io/bitnami/* -> docker.io/bitnamilegacy/* registry
+        # swap ADR 0011/0012 already needed for Kafka/Postgres (Bitnami
+        # Secure Images transition, Aug 2025) -- re-verified for this
+        # chart/tag specifically against Docker Hub's registry API
+        # (docker.io/bitnami/redis:8.2.1-debian-12-r0 404s,
+        # docker.io/bitnamilegacy/redis:8.2.1-debian-12-r0 exists), not
+        # assumed from precedent alone. Unlike Kafka/Postgres, this
+        # chart's current version (23.1.1, not deprecated -- checked its
+        # Chart.yaml for `deprecated: true` before pinning this version,
+        # same discipline as the Grafana/Loki/Tempo checks in
+        # observability#2/#3) already defaults to a tag that exists in
+        # bitnamilegacy, no need to pin an older chart version to find
+        # one that does.
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/redis
+          tag: 8.2.1-debian-12-r0
+        # Standalone, not the chart's `replication` default -- see file
+        # header. replica.replicaCount/sentinel.enabled below are then
+        # inert (standalone deploys master only) but set explicitly
+        # anyway, same "explicit over magic" preference as the scrape
+        # config in ADR 0014.
+        architecture: standalone
+        replica:
+          replicaCount: 0
+        sentinel:
+          enabled: false
+        auth:
+          # Kept at the chart's default (enabled, auth.password left
+          # unset) -- same call ADR 0012 made for Postgres, and for the
+          # same reason: single consumer, real credential, no syncing
+          # tool on the approved stack to make a cross-namespace Secret
+          # work. Rejected disabling auth (Kafka's PLAINTEXT treatment,
+          # ADR 0011): that was justified there by two consumers across
+          # two namespaces with no credential-sharing problem to avoid in
+          # the first place -- Redis here has exactly one consumer, so
+          # Kafka's justification for skipping auth doesn't apply, and
+          # fighting the chart's own default for a "it's just a cache"
+          # argument isn't a strong enough reason on its own. The chart
+          # generates a random password into a Secret (confirmed by
+          # rendering the chart locally: Secret "redis", key
+          # "redis-password") under the same
+          # common.secrets.passwords.manage mechanism Kafka's cluster ID
+          # and Postgres's password already use.
+          enabled: true
+        master:
+          resourcesPreset: small
+          persistence:
+            enabled: false
+          service:
+            type: ClusterIP
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: api
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
