@@ -1,0 +1,91 @@
+# Prometheus for observability#2 (ADR 0014). Helm chart source with
+# values inline, same pattern as Kafka/Postgres/OTel Collector. Own
+# `prometheus` namespace (multiple scrape targets, no credential to
+# worry about — same reasoning as Kafka/OTel Collector, not Postgres's
+# single-consumer exception).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus
+    targetRevision: 29.19.0
+    helm:
+      valuesObject:
+        # fullnameOverride keeps resource names short and predictable
+        # (Service ends up "prometheus-server", the chart's own
+        # component-name suffix — confirmed by rendering locally, not
+        # assumed).
+        fullnameOverride: prometheus
+        # This chart bundles Alertmanager, kube-state-metrics,
+        # node-exporter, and pushgateway as optional subcharts, all
+        # enabled by default. None are in scope for this issue's AC
+        # (app metrics from 3 services queryable in Grafana) --
+        # Alertmanager is M4's concern, kube-state-metrics/node-exporter
+        # are K8s/host-level metrics this AC doesn't ask for, pushgateway
+        # has no push-based source here. Disabled rather than deployed
+        # unused (ADR 0014).
+        alertmanager:
+          enabled: false
+        kube-state-metrics:
+          enabled: false
+        prometheus-node-exporter:
+          enabled: false
+        prometheus-pushgateway:
+          enabled: false
+        # Two scrape mechanisms, deliberately (ADR 0014): gateway/api
+        # have stable Service DNS, so static targets. workers has no
+        # Kubernetes Service at all (ADR 0009/0011, deliberate) --
+        # scraped via Kubernetes pod-role service discovery instead,
+        # the same direct-to-pod mechanism kubelet's own probes use.
+        # No relabeling needed: the workers namespace holds only
+        # workers pods, and its Deployment already declares
+        # containerPort: 8080, so pod-role SD sets __address__
+        # correctly on its own. otel-collector's own self-monitoring
+        # metrics (:8888, ADR 0013) get a fourth static target --
+        # monitoring the telemetry pipeline itself, not scope creep.
+        extraScrapeConfigs: |
+          - job_name: gateway
+            metrics_path: /actuator/prometheus
+            static_configs:
+              - targets: ['gateway.gateway.svc.cluster.local:80']
+          - job_name: api
+            metrics_path: /actuator/prometheus
+            static_configs:
+              - targets: ['api.api.svc.cluster.local:80']
+          - job_name: otel-collector
+            static_configs:
+              - targets: ['otel-collector.otel.svc.cluster.local:8888']
+          - job_name: workers
+            metrics_path: /actuator/prometheus
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['workers']
+        server:
+          # 3 days, not the chart's 15-day default: a single-node dev
+          # cluster generating a handful of test requests per session
+          # has no benefit from 15 days of mostly-empty series (ADR
+          # 0014's documented retention policy, per the AC).
+          retention: "3d"
+          persistentVolume:
+            # A real PVC, not emptyDir (ADR 0014, same reasoning as
+            # Postgres, ADR 0012): this data has actual continuity
+            # value -- that's what a retention policy means. Small,
+            # matching the short retention.
+            size: 2Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
