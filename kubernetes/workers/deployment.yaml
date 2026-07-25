@@ -34,7 +34,7 @@ spec:
         - name: workers
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/workers:b96aa9801c8463488bd23b8a2349081ddbb34553
+          image: ghcr.io/adamastorx/workers:a2461e45d1af7295dd4b067002b93c5d3fe3fcfb
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011) —
             # workers has no business HTTP API, this exists solely so
@@ -47,9 +47,9 @@ spec:
             - name: OTLP_COLLECTOR_ENDPOINT
               value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
             # platform#35 (ADR 0018) -- the download source for the
-            # services-side ClinVar ingestion path, not yet implemented.
-            # Points at the real NCBI file by default, the only correct
-            # default for the one real cluster this repo manages.
+            # services-side ClinVar ingestion path. Points at the real
+            # NCBI file by default, the only correct default for the one
+            # real cluster this repo manages.
             #
             # This doubles as the "dev overlay" the issue asked for. This
             # repo has no per-environment overlay mechanism anywhere --
@@ -63,15 +63,29 @@ spec:
             # single env var already *is* the override point: a
             # scratch/local bring-up points this at a small CI fixture
             # directly (`kubectl set env deploy/workers
-            # CLINVAR_SOURCE_URL=<fixture-url>`, or a throwaway branch that
-            # edits this one line and is never merged to main) instead of
-            # maintaining a parallel values file that could drift from
-            # this one. Revisit if this repo ever grows a second real,
-            # long-lived environment -- that's the point an actual overlay
-            # mechanism would earn its keep, not a one-variable dev/CI
-            # fixture swap.
-            - name: CLINVAR_SOURCE_URL
+            # CLINVAR_SOURCE_VCF_URL=<fixture-url>`, or a throwaway branch
+            # that edits this one line and is never merged to main)
+            # instead of maintaining a parallel values file that could
+            # drift from this one.
+            #
+            # Env var name corrected against services#25's actual
+            # application.yml binding (CLINVAR_SOURCE_VCF_URL, not
+            # CLINVAR_SOURCE_URL as first written here before the services
+            # side existed) -- the wrong name made this override silently
+            # inert (Spring just doesn't bind an env var it doesn't
+            # recognize), harmless only by coincidence since the code's
+            # own default already points at the same real NCBI URL.
+            - name: CLINVAR_SOURCE_VCF_URL
               value: https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz
+            # CLINVAR_REFDATA_PATH (ADR 0018) -- the PVC below is mounted
+            # at /data/refdata (pvc.yaml), but application.yml's own
+            # default is /data/refdata/clinvar (a subdirectory, meant for
+            # a shared scratch mount that might host more than ClinVar
+            # data). This PVC exists solely for ClinVar, so the mount
+            # root itself is the correct refdata-path -- override rather
+            # than change the code's local-dev-friendly default.
+            - name: CLINVAR_REFDATA_PATH
+              value: /data/refdata
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
           # than whoami's, hence the longer initialDelaySeconds.
@@ -130,11 +144,11 @@ spec:
               memory: 768Mi
           volumeMounts:
             # /data/refdata (ADR 0018) -- ClinVar VCF + .tbi + the
-            # clinvar.vcf.gz-adjacent double-buffered swap directory live
-            # here once the services-side ingestion path lands. Mounted on
-            # `workers` only in this PR -- see pvc.yaml for why `api`
-            # isn't mounted here too despite ADR 0018's literal "shared
-            # RWX" wording.
+            # download-then-swap staging directory. workers is the sole
+            # writer (ingestion); api also mounts this same PVC read-only
+            # in its own deployment.yaml for the lookup endpoint -- see
+            # pvc.yaml for why RWO (not the ADR's literal "RWX" wording)
+            # is fine for two Deployments sharing one node.
             - name: refdata
               mountPath: /data/refdata
       volumes:

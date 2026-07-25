@@ -18,7 +18,7 @@ spec:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/api:29390109ab85a8d7440020ea1aa08fced4e676eb
+          image: ghcr.io/adamastorx/api:a2461e45d1af7295dd4b067002b93c5d3fe3fcfb
           ports:
             - name: http
               containerPort: 8080
@@ -48,6 +48,13 @@ spec:
                 secretKeyRef:
                   name: redis
                   key: redis-password
+            # services#24, ADR 0018 -- same override as workers'
+            # deployment.yaml: the PVC below is mounted at /data/refdata,
+            # but application.yml's own local-dev default is
+            # /data/refdata/clinvar. This PVC exists solely for ClinVar,
+            # so the mount root itself is the correct refdata-path.
+            - name: CLINVAR_REFDATA_PATH
+              value: /data/refdata
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
           # than whoami's, hence the longer initialDelaySeconds.
@@ -71,3 +78,18 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
+          volumeMounts:
+            # /data/refdata (services#24, ADR 0018) -- read-only: api only
+            # ever reads {refdata-path}/current, never writes; workers
+            # (platform#35) is the sole writer via its own ingestion
+            # pipeline. Same `workers-refdata` PVC, mounted RWO but shared
+            # safely by two Deployments because this single-node cluster
+            # always schedules both onto the same node (see workers'
+            # pvc.yaml for the full reasoning and the node-count caveat).
+            - name: refdata
+              mountPath: /data/refdata
+              readOnly: true
+      volumes:
+        - name: refdata
+          persistentVolumeClaim:
+            claimName: workers-refdata
