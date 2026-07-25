@@ -18,7 +18,7 @@ spec:
         - name: gateway
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/gateway:bd335e0f192dba6a676029b6380ce610f05a7ea6
+          image: ghcr.io/adamastorx/gateway:ad1500028f7b22739d797ec30199d73b63466401
           ports:
             - name: http
               containerPort: 8080
