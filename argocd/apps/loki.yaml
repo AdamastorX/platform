@@ -30,6 +30,14 @@ spec:
           # chart default) would require every writer/reader to set an
           # X-Scope-OrgID header for no benefit.
           auth_enabled: false
+          # The chart's common.replication_factor defaults to 3, but
+          # there's exactly one singleBinary replica -- the ring then
+          # permanently considers itself under-replicated
+          # ("too many unhealthy instances in the ring" on every query),
+          # found by actually querying after deploying, not from the
+          # values.yaml comments alone.
+          commonConfig:
+            replication_factor: 1
           storage:
             type: filesystem
           # Real schema, not `useTestSchema: true` -- the chart's own
