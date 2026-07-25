@@ -49,6 +49,16 @@ spec:
             memory: 128Mi
           limits:
             memory: 256Mi
+        # The collector's own self-monitoring metrics (:8888, chart's
+        # default telemetry config -- already scraped by Prometheus,
+        # ADR 0014) are exposed on the container itself regardless, but
+        # the chart's `ports.metrics` entry is `enabled: false` by
+        # default -- meaning the Service never got a port for it, so
+        # Service-DNS scraping timed out on connect. Found deploying the
+        # real Prometheus scrape (the pod itself was always listening).
+        ports:
+          metrics:
+            enabled: true
         # config left at the chart's defaults deliberately: the traces
         # pipeline (otlp -> memory_limiter,batch -> debug) is exactly
         # what's needed. The unused jaeger/zipkin receivers and the
