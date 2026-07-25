@@ -1,0 +1,54 @@
+# Grafana for observability#2 (ADR 0014). Own `grafana` namespace (no
+# credential shared with Prometheus, self-contained admin secret, same
+# pattern as Kafka/Postgres). No PVC: entire state here is
+# code-provisioned (one datasource), nothing to lose on restart.
+#
+# repoURL points at grafana-community/helm-charts, not the original
+# grafana/helm-charts -- the upstream chart is `deprecated: true` as of
+# this writing, migrating to grafana-community after Jan 30th 2026 (a
+# date already past). Verified before switching: grafana-community
+# publishes the same chart (fullnameOverride/persistence/datasources
+# values schema unchanged), at a newer version (12.8.0, appVersion
+# 13.1.1, published 2026-07-21) than the deprecated repo's last release
+# (10.5.15) -- a real continuation, not a stale mirror.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: grafana
+    targetRevision: 12.8.0
+    helm:
+      valuesObject:
+        fullnameOverride: grafana
+        persistence:
+          enabled: false
+        # Provisioned datasource, not a manually-clicked-in one -- code,
+        # not clickops. Service name confirmed by rendering the
+        # Prometheus chart locally (fullnameOverride: prometheus still
+        # yields a "-server" suffixed Service, the chart's own
+        # component-name convention).
+        datasources:
+          datasources.yaml:
+            apiVersion: 1
+            datasources:
+              - name: Prometheus
+                type: prometheus
+                url: http://prometheus-server.prometheus.svc.cluster.local
+                access: proxy
+                isDefault: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: grafana
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
