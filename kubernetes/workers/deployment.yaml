@@ -23,7 +23,7 @@ spec:
         - name: workers
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/workers:bd335e0f192dba6a676029b6380ce610f05a7ea6
+          image: ghcr.io/adamastorx/workers:ad1500028f7b22739d797ec30199d73b63466401
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011) —
             # workers has no business HTTP API, this exists solely so
