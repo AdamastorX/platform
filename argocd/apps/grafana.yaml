@@ -29,20 +29,60 @@ spec:
         fullnameOverride: grafana
         persistence:
           enabled: false
-        # Provisioned datasource, not a manually-clicked-in one -- code,
-        # not clickops. Service name confirmed by rendering the
-        # Prometheus chart locally (fullnameOverride: prometheus still
-        # yields a "-server" suffixed Service, the chart's own
-        # component-name convention).
+        # Provisioned datasources, not manually-clicked-in ones -- code,
+        # not clickops. Prometheus Service name confirmed by rendering
+        # its chart locally (fullnameOverride: prometheus still yields
+        # a "-server" suffixed Service, the chart's own component-name
+        # convention).
+        #
+        # Loki<->Tempo correlation (ADR 0015): the services already
+        # print a `[<traceId>-<spanId>]` bracket on every log line once
+        # a trace is active (Boot's default correlation pattern, ADR
+        # 0013) -- confirmed by triggering a real request and reading
+        # the literal bracket format from `workers`' log output, not
+        # assumed. Loki's derivedFields regex extracts the 32-hex
+        # traceId from that exact bracket and links to Tempo; Tempo's
+        # tracesToLogsV2 links back to Loki, filtered by time window
+        # only (no traceID label exists on these log streams).
+        # Deliberately no serviceMap (needs Tempo's metricsGenerator,
+        # left disabled -- a remote_write dependency this issue doesn't
+        # need) and no metric->trace exemplar link (needs Prometheus
+        # native histograms + a Micrometer exemplar bridge on all three
+        # services, tracked separately as backlog #19a).
         datasources:
           datasources.yaml:
             apiVersion: 1
             datasources:
               - name: Prometheus
+                uid: prometheus
                 type: prometheus
                 url: http://prometheus-server.prometheus.svc.cluster.local
                 access: proxy
                 isDefault: true
+              - name: Loki
+                uid: loki
+                type: loki
+                url: http://loki.loki.svc.cluster.local:3100
+                access: proxy
+                jsonData:
+                  derivedFields:
+                    - datasourceUid: tempo
+                      matcherRegex: '\[([0-9a-f]{32})-[0-9a-f]{16}\]'
+                      name: TraceID
+                      url: '$${__value.raw}'
+                      urlDisplayLabel: 'View Trace'
+              - name: Tempo
+                uid: tempo
+                type: tempo
+                url: http://tempo.tempo.svc.cluster.local:3200
+                access: proxy
+                jsonData:
+                  tracesToLogsV2:
+                    datasourceUid: loki
+                    spanStartTimeShift: '-1h'
+                    spanEndTimeShift: '1h'
+                    filterByTraceID: false
+                    filterBySpanID: false
   destination:
     server: https://kubernetes.default.svc
     namespace: grafana

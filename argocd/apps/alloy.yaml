@@ -1,0 +1,81 @@
+# Alloy for observability#3 (ADR 0015). Own `alloy` namespace, DaemonSet
+# (chart default -- log collection is inherently per-node, unlike the
+# OTel Collector's centralized `mode: deployment` for OTLP push).
+#
+# Alloy, not Promtail: Promtail is grafana/helm-charts' deprecated
+# predecessor (deprecated: true, same finding as Tempo/the old Loki
+# repo), Alloy is its actively-maintained replacement and still lives
+# on the non-deprecated grafana.github.io/helm-charts repo.
+#
+# Explicit River config (not the higher-abstraction `k8s-monitoring`
+# meta-chart) -- same "explicit pipeline over a bundled black box"
+# choice already made for Prometheus's scrape configs and the OTel
+# Collector's pipeline. loki.source.kubernetes (API-based log read) is
+# used instead of the traditional loki.source.file + hostPath-mount
+# approach Promtail used: no /var/log mount or container-runtime-
+# specific path assumptions, just RBAC on pods/pods/log/namespaces.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.11.0
+    helm:
+      valuesObject:
+        fullnameOverride: alloy
+        rbac:
+          create: true
+          clusterRules:
+            - apiGroups: [""]
+              resources: ["pods", "pods/log", "namespaces", "nodes"]
+              verbs: ["get", "list", "watch"]
+        alloy:
+          configMap:
+            content: |
+              discovery.kubernetes "pods" {
+                role = "pod"
+              }
+
+              discovery.relabel "pods" {
+                targets = discovery.kubernetes.pods.targets
+
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label  = "container"
+                }
+              }
+
+              loki.source.kubernetes "pods" {
+                targets    = discovery.relabel.pods.output
+                forward_to = [loki.write.default.receiver]
+              }
+
+              loki.write "default" {
+                endpoint {
+                  url = "http://loki.loki.svc.cluster.local:3100/loki/api/v1/push"
+                }
+              }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: alloy
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

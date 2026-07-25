@@ -1,0 +1,107 @@
+# Loki for observability#3 (ADR 0015). Own `loki` namespace. Monolithic
+# deployment mode (chart default) with filesystem storage -- avoids
+# standing up S3/MinIO for a single-node dev cluster's log volume, the
+# same "no operator/object-store for a problem this cluster doesn't
+# have" reasoning ADR 0011/0014 already used for Kafka/Prometheus.
+#
+# repoURL points at grafana-community/helm-charts: the original
+# grafana/helm-charts loki chart now serves GEL (enterprise) users only,
+# OSS users redirected to grafana-community since March 2026 -- same
+# migration finding as ADR 0014's Grafana chart.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: loki
+    targetRevision: 18.5.4
+    helm:
+      valuesObject:
+        fullnameOverride: loki
+        deploymentMode: Monolithic
+        loki:
+          # No multi-tenant requirement here -- auth_enabled: true (the
+          # chart default) would require every writer/reader to set an
+          # X-Scope-OrgID header for no benefit.
+          auth_enabled: false
+          storage:
+            type: filesystem
+          # Real schema, not `useTestSchema: true` -- the chart's own
+          # comments mark that shortcut as "for testing or playing
+          # around." This cluster's logs are meant to actually persist
+          # for the retention window below.
+          schemaConfig:
+            configs:
+              - from: "2024-01-01"
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index:
+                  prefix: index_
+                  period: 24h
+          limits_config:
+            # 72h to match Tempo's retention (ADR 0015) and stay close
+            # to Prometheus's 3-day metrics window (ADR 0014) -- a
+            # trace and the logs around it should stay correlatable for
+            # the same window.
+            retention_period: 72h
+          # limitsConfig.retention_period alone doesn't delete anything
+          # -- the compactor is what actually enforces it, and is off
+          # by default (empty compactor block). Found by checking the
+          # chart's rendered config, not assumed from the retention
+          # setting alone.
+          compactor:
+            retention_enabled: true
+            delete_request_store: filesystem
+        singleBinary:
+          replicas: 1
+          persistence:
+            size: 2Gi
+        # SimpleScalable-mode components -- must be explicitly zeroed
+        # even with deploymentMode: Monolithic, or the chart's own
+        # validation rejects the values (confirmed locally before
+        # writing this).
+        read:
+          replicas: 0
+        write:
+          replicas: 0
+        backend:
+          replicas: 0
+        # nginx gateway routing to read/write/backend has no purpose
+        # when everything is one singleBinary pod already reachable
+        # directly.
+        gateway:
+          enabled: false
+        # memcached-based caches: no benefit at this traffic volume.
+        chunksCache:
+          enabled: false
+        resultsCache:
+          enabled: false
+        # Built-in self-test smoke checks -- not part of this issue's
+        # AC, one less moving part.
+        lokiCanary:
+          enabled: false
+        test:
+          enabled: false
+        monitoring:
+          selfMonitoring:
+            enabled: false
+          serviceMonitor:
+            enabled: false
+          lokiCanary:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: loki
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

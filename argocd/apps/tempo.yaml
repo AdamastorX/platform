@@ -1,0 +1,46 @@
+# Tempo for observability#3 (ADR 0015). Own `tempo` namespace.
+# `tempo` chart (single-binary mode), not `tempo-distributed` -- one
+# binary handles ingest/storage/query, matching this project's
+# "no scale machinery for a scale problem this cluster doesn't have"
+# pattern (same reasoning as Loki's Monolithic mode and Prometheus's
+# rejection of the Operator stack, ADR 0011/0014/0015).
+#
+# repoURL points at grafana-community/helm-charts -- the original
+# grafana/helm-charts tempo chart is deprecated: true, same finding as
+# ADR 0014's Grafana chart and this ADR's Loki chart.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: tempo
+    targetRevision: 2.2.3
+    helm:
+      valuesObject:
+        fullnameOverride: tempo
+        tempo:
+          # 72h, matching Loki's retention and close to Prometheus's
+          # 3-day window (ADR 0014) -- a trace and the signals around
+          # it should stay correlatable for the same period, not the
+          # chart's 24h default.
+          retention: 72h
+        # A real PVC, not emptyDir -- trace data has continuity value
+        # once persisted, same reasoning as Loki/Prometheus/Postgres.
+        persistence:
+          enabled: true
+          size: 2Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tempo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

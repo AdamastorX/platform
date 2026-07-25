@@ -1,11 +1,12 @@
 # OpenTelemetry Collector for observability#1 (ADR 0013). Official
 # open-telemetry Helm chart (not Bitnami — no registry-migration
 # workaround needed, verified against Docker Hub directly), same
-# inline-valuesObject pattern as Kafka/Postgres. Traces only for now:
-# metrics stay on each service's /actuator/prometheus scrape endpoint
-# (backlog #18), logs stay in console output until Loki (#19) — routing
-# either through this Collector today would be reaching ahead of those
-# deliberately separate steps.
+# inline-valuesObject pattern as Kafka/Postgres. Traces only: metrics
+# stay on each service's /actuator/prometheus scrape endpoint (ADR
+# 0014), logs stay in console output, shipped to Loki by Alloy directly
+# rather than through this Collector (ADR 0015) — routing either
+# through this Collector would add a hop this project never actually
+# uses.
 #
 # Own `otel` namespace (ADR 0009's per-component pattern, same reasoning
 # as Kafka): three consumers (gateway, api, workers all push to it), and
@@ -59,12 +60,27 @@ spec:
         ports:
           metrics:
             enabled: true
-        # config left at the chart's defaults deliberately: the traces
-        # pipeline (otlp -> memory_limiter,batch -> debug) is exactly
-        # what's needed. The unused jaeger/zipkin receivers and the
-        # metrics/logs pipelines are inert (ClusterIP only, nothing
-        # sends to those ports) and not worth fighting Helm's
-        # null-based config trimming to remove for a marginal cleanup.
+        # Traces now export to Tempo (ADR 0015), replacing the `debug`
+        # placeholder exporter -- its job (proving spans exist by
+        # eyeballing Collector logs) is superseded by a real, queryable
+        # backend. Confirmed this `config` values key deep-merges with
+        # the chart's own defaults (only this exporters list gets
+        # replaced, receivers/processors untouched) by rendering the
+        # chart locally first. The unused jaeger/zipkin receivers, the
+        # metrics/logs pipelines, and the now-orphaned `debug` exporter
+        # definition are inert and not worth fighting Helm's
+        # null-based config trimming to remove for a marginal cleanup
+        # (same precedent as leaving jaeger/zipkin in place already).
+        config:
+          exporters:
+            otlp/tempo:
+              endpoint: tempo.tempo.svc.cluster.local:4317
+              tls:
+                insecure: true
+          service:
+            pipelines:
+              traces:
+                exporters: [otlp/tempo]
   destination:
     server: https://kubernetes.default.svc
     namespace: otel
