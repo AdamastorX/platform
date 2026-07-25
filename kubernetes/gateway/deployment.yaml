@@ -18,7 +18,7 @@ spec:
         - name: gateway
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/gateway:cc50af03777c8934fc36a08b1ffa20a4ca52a127
+          image: ghcr.io/adamastorx/gateway:bd335e0f192dba6a676029b6380ce610f05a7ea6
           ports:
             - name: http
               containerPort: 8080
@@ -29,7 +29,7 @@ spec:
           env:
             - name: API_SERVICE_URL
               value: http://api.api.svc.cluster.local
-            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTLP_COLLECTOR_ENDPOINT
               value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
