@@ -18,7 +18,7 @@ spec:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/api:b96aa9801c8463488bd23b8a2349081ddbb34553
+          image: ghcr.io/adamastorx/api:29390109ab85a8d7440020ea1aa08fced4e676eb
           ports:
             - name: http
               containerPort: 8080
@@ -39,6 +39,15 @@ spec:
                 secretKeyRef:
                   name: postgresql
                   key: password
+            # services#5, ADR 0016 -- REDIS_HOST default in
+            # application.yml already matches this chart's standalone
+            # master Service name (redis-master.api.svc.cluster.local),
+            # so only the password needs an explicit env var.
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
           # than whoami's, hence the longer initialDelaySeconds.
