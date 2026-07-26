@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: clinvar-service
+  labels:
+    app: clinvar-service
+spec:
+  # api reaches this via Service DNS (clinvar-service.clinvar.svc.cluster.local,
+  # ADR 0019) -- the gateway->api pattern (ADR 0010) applied to this new
+  # internal boundary. ClusterIP only, same trust model as every other
+  # in-cluster service here (no auth between services, ADR 0010).
+  type: ClusterIP
+  selector:
+    app: clinvar-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

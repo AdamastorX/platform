@@ -1,0 +1,32 @@
+# clinvar-service (ADR 0019): this project's first non-JVM component,
+# and the sole owner of all ClinVar/gnomAD data end-to-end after the
+# original ADR 0018 design (split across api/workers) hit two real
+# cross-namespace bugs deploying it -- a PVC and a Postgres Secret,
+# neither shareable across the api/workers namespace boundary.
+#
+# Own namespace, own PVC, own dedicated Postgres instance
+# (clinvar-postgresql.yaml) -- the same single-consumer reasoning ADR
+# 0012 already used for api's Postgres, applied fresh rather than
+# sharing across a namespace boundary again.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clinvar-service
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/clinvar-service
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clinvar
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
