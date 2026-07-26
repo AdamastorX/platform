@@ -25,7 +25,7 @@ spec:
           # same convention as gateway/api/workers) -- bump this one line
           # and open a PR to deploy a new build. Published by services'
           # build-publish.yml's publish-clinvar-service job (services#35).
-          image: ghcr.io/adamastorx/clinvar-service:e49be616576c5e0ac64d505132774178624e7371
+          image: ghcr.io/adamastorx/clinvar-service:aaaaacf6342d27668313172b3d3df964bfb7dc0c
           ports:
             - name: http
               containerPort: 8000
