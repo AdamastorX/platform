@@ -47,3 +47,13 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+  # platform#34: same chart, same confirmed `helm template` non-
+  # idempotency as api's own postgresql.yaml -- see that file's
+  # ignoreDifferences comment for the full root-cause writeup.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: clinvar-postgresql
+      namespace: clinvar
+      jsonPointers:
+        - /data
