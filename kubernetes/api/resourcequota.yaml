@@ -1,0 +1,26 @@
+# platform#35: bounds total consumption of the `api` namespace (api
+# Deployment + the postgresql/redis Helm charts, both deployed here per
+# ADR 0012/0016) so a runaway pod in this namespace can't eat the whole
+# single-node cluster's remaining capacity.
+#
+# Sized from real usage, not guessed -- `kubectl -n api get pods -o json`
+# on the live cluster (2026-07) showed:
+#   api:        requests cpu=250m mem=256Mi, limits cpu=500m mem=512Mi (post platform#35)
+#   postgresql: requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
+#   redis:      requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
+# Steady-state totals: requests cpu=1250m mem=1280Mi, limits cpu=2000m mem=2048Mi.
+# api is the one Deployment here (Postgres/Redis are StatefulSets, no
+# surge on update) -- a rolling update temporarily runs two api pods
+# (default maxSurge=1), adding +250m/+256Mi requests and +500m/+512Mi
+# limits at peak. Quota below clears that peak with headroom, it isn't
+# just steady-state with no room for a deploy to happen.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 3Gi
+    limits.cpu: "3"
+    limits.memory: 4Gi

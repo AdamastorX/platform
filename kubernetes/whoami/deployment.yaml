@@ -24,5 +24,9 @@ spec:
             requests:
               cpu: 10m
               memory: 16Mi
+            # platform#35: explicit CPU limit added alongside the existing
+            # memory limit -- previously unbounded. Same 5x request:limit
+            # ratio this trivial proof app's memory limit already used.
             limits:
+              cpu: 50m
               memory: 32Mi
