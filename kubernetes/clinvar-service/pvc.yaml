@@ -1,0 +1,19 @@
+# clinvar-service's own refdata PVC (ADR 0019). A single, genuine owner
+# this time -- unlike workers' now-removed PVC, nothing else mounts this,
+# so there's no RWX-vs-RWO or cross-namespace question to document here.
+#
+# storageClassName: local-path, explicit (same "explicit over magic"
+# preference as every other chart/manifest in this repo). 2Gi -- same
+# sizing ADR 0018 originally measured (~184MiB compressed VCF + .tbi,
+# double-buffered for the download-then-swap release layout).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clinvar-service-refdata
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi

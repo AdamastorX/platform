@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clinvar-service
+  labels:
+    app: clinvar-service
+spec:
+  # This project's first PVC-backed workload with a single, genuine
+  # owner (ADR 0019) -- no RWO/node-pinning caveat worth a comment the
+  # way workers' now-removed PVC needed one, since nothing else will
+  # ever try to mount this volume. Still node-pinned by local-path's
+  # WaitForFirstConsumer binding, still 1 replica for that reason.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clinvar-service
+  template:
+    metadata:
+      labels:
+        app: clinvar-service
+    spec:
+      containers:
+        - name: clinvar-service
+          # Image tag is the services repo's commit SHA (ADR 0008/0009,
+          # same convention as gateway/api/workers) -- bump this one line
+          # and open a PR to deploy a new build. Published by services'
+          # build-publish.yml's publish-clinvar-service job (services#35).
+          image: ghcr.io/adamastorx/clinvar-service:f9e9ec4727c40b0401c5780330d77c8610c1d1c4
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.kafka.svc.cluster.local:9092
+            - name: OTLP_COLLECTOR_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
+            - name: CLINVAR_REFDATA_PATH
+              value: /data/clinvar
+            # Dedicated Postgres instance (clinvar-postgresql.yaml, ADR
+            # 0019) -- not api's work_items database. Composed from the
+            # five POSTGRES_* vars rather than a single DATABASE_URL,
+            # since the chart-generated Secret exposes a password key,
+            # not a full DSN -- assembling it as separate vars avoids
+            # templating a connection string ourselves.
+            - name: POSTGRES_HOST
+              value: clinvar-postgresql.clinvar.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: clinvar
+            - name: POSTGRES_DB
+              value: clinvar
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clinvar-postgresql
+                  key: password
+          # No dedicated /health route exists in this app yet (a real
+          # gap -- every Java service here has actuator health probes,
+          # this doesn't have an equivalent). TCP socket checks instead
+          # of an HTTP path: works regardless of app-level health logic,
+          # and doesn't need a code change to unblock this deployment.
+          # Revisit with a real /health route as a fast-follow.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          # Same reasoning platform#37's now-reverted workers sizing
+          # used: CPU limit bounds the tabix-indexing burst (weekly
+          # ingestion), memory covers buffering the ~184MiB compressed
+          # VCF during download. Carried over unchanged since the actual
+          # workload moved here, not duplicated from scratch.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          volumeMounts:
+            - name: refdata
+              mountPath: /data/clinvar
+      volumes:
+        - name: refdata
+          persistentVolumeClaim:
+            claimName: clinvar-service-refdata

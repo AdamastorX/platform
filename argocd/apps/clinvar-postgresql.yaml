@@ -1,0 +1,49 @@
+# Dedicated PostgreSQL for clinvar-service (ADR 0019). Same chart/pattern
+# as api's own postgresql.yaml (ADR 0012) -- a second, independent
+# instance, not a shared database across a namespace boundary. That's
+# the whole point of this ADR: ADR 0018's original design shared api's
+# Postgres instance with workers across namespaces and broke on the
+# Secret's namespace scoping. A second small Postgres, in
+# clinvar-service's own namespace, with its own generated credential,
+# sidesteps that class of bug entirely rather than working around it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clinvar-postgresql
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: postgresql
+    targetRevision: 16.2.1
+    helm:
+      valuesObject:
+        fullnameOverride: clinvar-postgresql
+        # Same registry override api's postgresql.yaml already needed
+        # (Bitnami Secure Images transition, Aug 2025) -- same chart
+        # version, same tag, so no new verification needed here.
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/postgresql
+          tag: 17.1.0-debian-12-r0
+        auth:
+          username: clinvar
+          database: clinvar
+        primary:
+          resourcesPreset: small
+          persistence:
+            size: 2Gi
+        service:
+          type: ClusterIP
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clinvar
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

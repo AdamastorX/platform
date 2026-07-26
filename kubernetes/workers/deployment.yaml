@@ -11,16 +11,13 @@ spec:
   # not the embedded-Kafka unit test). Back to 1 as the steady-state
   # count for this small dev cluster.
   #
-  # As of platform#35 (ADR 0018) this is no longer just a steady-state
-  # choice, it's a hard ceiling: workers now claims a `local-path` PVC
-  # (pvc.yaml, `workers-refdata`), and `local-path` is a hostPath-backed
-  # provisioner tied to whichever single node first claims the volume
-  # (WaitForFirstConsumer). Scaling replicas past 1 without also adding
-  # node affinity would schedule a second pod that either can't mount the
-  # volume at all (different node) or silently reintroduces the
-  # RWO-shared-across-pods assumption pvc.yaml already flags as
-  # single-node-only. Revisit together with pvc.yaml's RWO note if this
-  # ever needs to scale out for the work-item domain.
+  # platform#35/#37 (ADR 0018) briefly gave workers a PVC and Postgres
+  # access for ClinVar ingestion -- reverted here under ADR 0019, which
+  # moved all of that into a new standalone `clinvar-service` component
+  # after two real cross-namespace bugs (a PVC, then a Postgres Secret,
+  # neither shareable across the api/workers namespace boundary) surfaced
+  # deploying the original design. workers is back to being purely the
+  # M2 work-items Kafka consumer; nothing below references ClinVar.
   replicas: 1
   selector:
     matchLabels:
@@ -34,7 +31,7 @@ spec:
         - name: workers
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/workers:a2461e45d1af7295dd4b067002b93c5d3fe3fcfb
+          image: ghcr.io/adamastorx/workers:f9e9ec4727c40b0401c5780330d77c8610c1d1c4
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011) —
             # workers has no business HTTP API, this exists solely so
@@ -46,46 +43,6 @@ spec:
               value: kafka.kafka.svc.cluster.local:9092
             - name: OTLP_COLLECTOR_ENDPOINT
               value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
-            # platform#35 (ADR 0018) -- the download source for the
-            # services-side ClinVar ingestion path. Points at the real
-            # NCBI file by default, the only correct default for the one
-            # real cluster this repo manages.
-            #
-            # This doubles as the "dev overlay" the issue asked for. This
-            # repo has no per-environment overlay mechanism anywhere --
-            # checked every app under argocd/apps/ and kubernetes/, no
-            # kustomize overlays, no per-env branching, and `workers`
-            # itself isn't even a Helm chart (raw manifests, see
-            # ../../argocd/README.md) so there's no valuesObject to layer
-            # a "dev" values file onto in the first place. Building a
-            # first-of-its-kind ArgoCD overlay mechanism for one variable
-            # would be scope creep well past what this issue needs. A
-            # single env var already *is* the override point: a
-            # scratch/local bring-up points this at a small CI fixture
-            # directly (`kubectl set env deploy/workers
-            # CLINVAR_SOURCE_VCF_URL=<fixture-url>`, or a throwaway branch
-            # that edits this one line and is never merged to main)
-            # instead of maintaining a parallel values file that could
-            # drift from this one.
-            #
-            # Env var name corrected against services#25's actual
-            # application.yml binding (CLINVAR_SOURCE_VCF_URL, not
-            # CLINVAR_SOURCE_URL as first written here before the services
-            # side existed) -- the wrong name made this override silently
-            # inert (Spring just doesn't bind an env var it doesn't
-            # recognize), harmless only by coincidence since the code's
-            # own default already points at the same real NCBI URL.
-            - name: CLINVAR_SOURCE_VCF_URL
-              value: https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz
-            # CLINVAR_REFDATA_PATH (ADR 0018) -- the PVC below is mounted
-            # at /data/refdata (pvc.yaml), but application.yml's own
-            # default is /data/refdata/clinvar (a subdirectory, meant for
-            # a shared scratch mount that might host more than ClinVar
-            # data). This PVC exists solely for ClinVar, so the mount
-            # root itself is the correct refdata-path -- override rather
-            # than change the code's local-dev-friendly default.
-            - name: CLINVAR_REFDATA_PATH
-              value: /data/refdata
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
           # than whoami's, hence the longer initialDelaySeconds.
@@ -103,55 +60,9 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 10
             failureThreshold: 6
-          # platform#35 (ADR 0018) resource sizing, reasoned from a
-          # measured artifact size plus this cluster's actual headroom,
-          # not copied from api/gateway's baseline unchanged:
-          #
-          # CPU request stays at 250m, matching api/gateway -- this
-          # cluster's node is already at 64% (2570m/4000m) *requested* CPU
-          # today (`kubectl describe node`), and workers is idle (Kafka
-          # consumer + a weekly @Scheduled trigger, ADR 0018) well over 99%
-          # of the time. Raising the steady-state request further would
-          # eat into an already-tight shared budget for a workload that
-          # doesn't need it most weeks.
-          #
-          # CPU limit is new (previously unset, i.e. unbounded up to node
-          # capacity) -- explicitly capped at 1 core. Tabix-indexing the
-          # ClinVar VCF is the one real CPU-heavy moment this pod has
-          # (single-threaded block-index build over a ~184MiB compressed
-          # file, confirmed today via `curl -sI` against NCBI's real
-          # Content-Length; ~15 other components share this one 4-core
-          # node). No live measurement of an actual indexing run was taken
-          # -- the ingestion path doesn't exist yet (services-side, ADR
-          # 0018) -- so this is a reasoned ceiling (4x the steady-state
-          # request, enough to finish a sub-minute weekly burst quickly)
-          # rather than a profiled one; revisit against real numbers once
-          # the first live refresh cycle actually runs.
-          #
-          # Memory request/limit both bumped (256Mi/512Mi -> 384Mi/768Mi)
-          # for the same reason: buffering a ~184MiB compressed VCF during
-          # download plus holding its tabix index during the
-          # download-then-swap (ADR 0018) needs headroom beyond the
-          # pure-Kafka-consumer footprint these numbers were originally
-          # sized for. Node memory is not the tight resource here (13%
-          # requested today) -- CPU is -- so this side gets more slack.
           resources:
             requests:
               cpu: 250m
-              memory: 384Mi
+              memory: 256Mi
             limits:
-              cpu: "1"
-              memory: 768Mi
-          volumeMounts:
-            # /data/refdata (ADR 0018) -- ClinVar VCF + .tbi + the
-            # download-then-swap staging directory. workers is the sole
-            # writer (ingestion); api also mounts this same PVC read-only
-            # in its own deployment.yaml for the lookup endpoint -- see
-            # pvc.yaml for why RWO (not the ADR's literal "RWX" wording)
-            # is fine for two Deployments sharing one node.
-            - name: refdata
-              mountPath: /data/refdata
-      volumes:
-        - name: refdata
-          persistentVolumeClaim:
-            claimName: workers-refdata
+              memory: 512Mi
