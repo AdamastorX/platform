@@ -25,7 +25,7 @@ spec:
           # same convention as gateway/api/workers) -- bump this one line
           # and open a PR to deploy a new build. Published by services'
           # build-publish.yml's publish-clinvar-service job (services#35).
-          image: ghcr.io/adamastorx/clinvar-service:f9e9ec4727c40b0401c5780330d77c8610c1d1c4
+          image: ghcr.io/adamastorx/clinvar-service:070cc50c184103fb01ed14ce69b0c92eb4714aa0
           ports:
             - name: http
               containerPort: 8000
@@ -55,20 +55,22 @@ spec:
                 secretKeyRef:
                   name: clinvar-postgresql
                   key: password
-          # No dedicated /health route exists in this app yet (a real
-          # gap -- every Java service here has actuator health probes,
-          # this doesn't have an equivalent). TCP socket checks instead
-          # of an HTTP path: works regardless of app-level health logic,
-          # and doesn't need a code change to unblock this deployment.
-          # Revisit with a real /health route as a fast-follow.
+          # GET /healthz (app/routes/admin.py) confirmed live -- switched
+          # off the earlier TCP-only check, which could never detect an
+          # unresponsive app (the kernel completes a TCP handshake into
+          # the accept queue regardless of whether the app ever calls
+          # accept(), so it can't tell a wedged process from a healthy
+          # one -- exactly the blind spot a real double-ingestion hit).
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: http
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 6
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: http
             initialDelaySeconds: 15
             periodSeconds: 10
