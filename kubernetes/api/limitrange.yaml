@@ -15,6 +15,6 @@ spec:
   limits:
     - type: Container
       default:
-        cpu: 500m
+        cpu: "1"
       defaultRequest:
         cpu: 250m
