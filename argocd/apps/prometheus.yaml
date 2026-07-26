@@ -109,8 +109,8 @@ spec:
           enabled: false
         prometheus-pushgateway:
           enabled: false
-        # Two scrape mechanisms, deliberately (ADR 0014): gateway/api
-        # have stable Service DNS, so static targets. workers has no
+        # Two scrape mechanisms, deliberately (ADR 0014): api has a
+        # stable Service DNS, so a static target. workers has no
         # Kubernetes Service at all (ADR 0009/0011, deliberate) --
         # scraped via Kubernetes pod-role service discovery instead,
         # the same direct-to-pod mechanism kubelet's own probes use.
@@ -130,13 +130,11 @@ spec:
         # writing any alert rule against clinvar_* metrics, since an
         # unscraped metric's alert rule would just silently never fire
         # rather than error, the worse kind of gap. Same stable Service
-        # DNS shape as gateway/api (clinvar-service.clinvar.svc.cluster.local,
+        # DNS shape as api (clinvar-service.clinvar.svc.cluster.local,
         # ADR 0019's own namespace), so static config, not discovery.
+        # `gateway`'s own static target was removed by ADR 0021/backlog
+        # #S1 along with the service itself.
         extraScrapeConfigs: |
-          - job_name: gateway
-            metrics_path: /actuator/prometheus
-            static_configs:
-              - targets: ['gateway.gateway.svc.cluster.local:80']
           - job_name: api
             metrics_path: /actuator/prometheus
             static_configs:
@@ -183,9 +181,9 @@ spec:
         # What each alert means, one line, so it's not firing into a
         # void before backlog #22 (dedicated runbooks item) writes the
         # real first-response doc per alert:
-        #   GatewayHighErrorRate / ApiHighErrorRate: the service itself
-        #     is returning 5xx to a real share of its callers -- look at
-        #     its own logs/traces first, not a downstream dependency.
+        #   ApiHighErrorRate: the service itself is returning 5xx to a
+        #     real share of its callers -- look at its own logs/traces
+        #     first, not a downstream dependency.
         #   ApiVariantsLookupHighErrorRate: api's calls to
         #     clinvar-service are failing -- check clinvar-service's own
         #     health/logs before assuming the bug is in api.
@@ -210,8 +208,14 @@ spec:
             groups:
               - name: adamastorx-slos
                 rules:
-                  # gateway (ADR 0020: non-5xx rate on
-                  # http_server_requests_seconds_count). outcome="SERVER_ERROR"
+                  # `gateway`'s GatewayHighErrorRate rule (and its scrape
+                  # target) was removed by ADR 0021/backlog #S1 along with
+                  # the service itself -- api's own Ingress is now the
+                  # live Traefik+TLS+service path.
+                  #
+                  # api (ADR 0020: non-5xx rate, excluding /actuator/*
+                  # same as ADR 0017's dashboard so its own health/scrape
+                  # traffic never counts against it). outcome="SERVER_ERROR"
                   # is Micrometer's own tag (confirmed live, not assumed --
                   # same query shape ADR 0017's dashboard already uses).
                   # 5% breach threshold: matches the dashboard's own
@@ -222,25 +226,6 @@ spec:
                   # request could otherwise swing the ratio to 100% for
                   # one scrape -- sustained over 5m with real traffic
                   # underneath filters that out.
-                  - alert: GatewayHighErrorRate
-                    expr: >-
-                      (
-                        sum(rate(http_server_requests_seconds_count{job="gateway", outcome="SERVER_ERROR"}[5m]))
-                        /
-                        sum(rate(http_server_requests_seconds_count{job="gateway"}[5m]))
-                      ) > 0.05
-                      and sum(rate(http_server_requests_seconds_count{job="gateway"}[5m])) > 0
-                    for: 5m
-                    labels:
-                      severity: critical
-                    annotations:
-                      summary: "gateway non-5xx rate breached (>5% over 5m)"
-                      description: "gateway is returning 5xx to more than 5% of requests over the last 5m. See ADR 0020's SLO table."
-
-                  # api (ADR 0020: non-5xx rate, excluding /actuator/*
-                  # same as ADR 0017's dashboard so its own health/scrape
-                  # traffic never counts against it). Same 5%/5m
-                  # reasoning as gateway above.
                   - alert: ApiHighErrorRate
                     expr: >-
                       (
@@ -283,7 +268,7 @@ spec:
 
                   # workers (ADR 0020: listener timer's own `error` label,
                   # != "none", not latency). Same 5%/5m reasoning as
-                  # gateway/api's non-5xx rate -- this is workers' direct
+                  # api's non-5xx rate above -- this is workers' direct
                   # equivalent signal, just on a different metric family
                   # since it has no business HTTP API (ADR 0009/0011).
                   - alert: WorkersListenerErrorRate

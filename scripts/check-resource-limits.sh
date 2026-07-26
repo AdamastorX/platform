@@ -11,8 +11,9 @@ set -euo pipefail
 # script is to catch the gap mechanically in the PR that introduces it.
 #
 # Scope: only the bare Deployment manifests this repo hand-writes
-# (kubernetes/{api,gateway,workers,clinvar-service,whoami}/deployment.yaml).
-# The Helm-chart-sourced Applications (Postgres/Redis/Kafka) set their
+# (kubernetes/{api,workers,clinvar-service}/deployment.yaml -- gateway and
+# whoami were removed by ADR 0021/backlog #S1/#S2). The Helm-chart-sourced
+# Applications (Postgres/Redis/Kafka) set their
 # own resources via chart values (resourcesPreset, already rendered and
 # kubeconformed by CI's helm-render job) -- not this script's job.
 

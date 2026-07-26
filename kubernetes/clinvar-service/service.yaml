@@ -6,8 +6,9 @@ metadata:
     app: clinvar-service
 spec:
   # api reaches this via Service DNS (clinvar-service.clinvar.svc.cluster.local,
-  # ADR 0019) -- the gateway->api pattern (ADR 0010) applied to this new
-  # internal boundary. ClusterIP only, same trust model as every other
+  # ADR 0019) -- the same service-to-service pattern ADR 0010 established
+  # (originally gateway->api; gateway itself was removed by ADR 0021/
+  # backlog #S1). ClusterIP only, same trust model as every other
   # in-cluster service here (no auth between services, ADR 0010).
   type: ClusterIP
   selector:

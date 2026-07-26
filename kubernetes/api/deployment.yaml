@@ -51,14 +51,17 @@ spec:
             # services#24, ADR 0019 -- api no longer touches ClinVar data
             # directly (no PVC, no direct Postgres access); it calls the
             # standalone clinvar-service over HTTP instead, the same
-            # pattern gateway already uses to call api (ADR 0010). Default
-            # in application.yml already matches this Service DNS, so this
-            # override is mostly documentation of the real value in use.
+            # service-to-service HTTP pattern ADR 0010 established
+            # (originally gateway calling api; gateway itself was removed
+            # by ADR 0021/backlog #S1). Default in application.yml already
+            # matches this Service DNS, so this override is mostly
+            # documentation of the real value in use.
             - name: CLINVAR_SERVICE_URL
               value: http://clinvar-service.clinvar.svc.cluster.local
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
-          # than whoami's, hence the longer initialDelaySeconds.
+          # than a trivial static-binary proof app's, hence the longer
+          # initialDelaySeconds.
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness

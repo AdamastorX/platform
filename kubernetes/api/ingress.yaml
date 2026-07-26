@@ -1,0 +1,40 @@
+# Exposes api through Traefik with TLS from the project CA -- the live
+# Traefik+TLS+service path (ADR 0021/backlog #S1), replacing gateway's
+# Ingress (deleted: gateway carried exactly one placeholder route, never
+# wired to real traffic) and standing in for whoami's Ingress (deleted:
+# backlog #S2) as the ingress+cert-manager proof. No public DNS: resolve
+# the host locally, e.g.
+#   curl --resolve api.local.adamastorx.dev:443:127.0.0.1 \
+#        --cacert adamastorx-ca.crt https://api.local.adamastorx.dev/
+# (CA export: see ../cert-manager-issuers/README.md)
+#
+# api is a JVM service (Spring Boot) -- cold start is slower than
+# whoami's ever was; the Deployment's readinessProbe already accounts
+# for this with initialDelaySeconds: 20, but a freshly-rolled pod may
+# still take longer to pass than whoami ever did.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  labels:
+    app: api
+  annotations:
+    # ingress-shim creates/renews the 'api-tls' Certificate for us.
+    cert-manager.io/cluster-issuer: adamastorx-ca
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: api.local.adamastorx.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - api.local.adamastorx.dev
+      secretName: api-tls

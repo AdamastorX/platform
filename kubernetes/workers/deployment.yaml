@@ -45,7 +45,8 @@ spec:
               value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
           # Spring Boot Actuator health groups (application.yml enables
           # management.endpoint.health.probes) — JVM cold start is slower
-          # than whoami's, hence the longer initialDelaySeconds.
+          # than a trivial static-binary proof app's, hence the longer
+          # initialDelaySeconds.
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
