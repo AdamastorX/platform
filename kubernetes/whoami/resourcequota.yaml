@@ -1,0 +1,20 @@
+# platform#35: bounds total consumption of the `whoami` namespace (a
+# single trivial proof-app Deployment, no other workloads here).
+#
+# Sized from real usage -- `kubectl -n whoami get pods -o json` on the
+# live cluster (2026-07) showed the whoami pod at requests cpu=10m
+# mem=16Mi, limits cpu=50m mem=32Mi (post platform#35). A rolling update
+# temporarily runs two pods (default maxSurge=1), peaking at requests
+# cpu=20m mem=32Mi, limits cpu=100m mem=64Mi. Quota below clears that
+# peak with generous headroom -- this workload is tiny and there's no
+# reason to size it tightly.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 200m
+    requests.memory: 256Mi
+    limits.cpu: 500m
+    limits.memory: 512Mi

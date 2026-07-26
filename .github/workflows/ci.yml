@@ -111,8 +111,29 @@ jobs:
       - name: shellcheck
         run: git ls-files '*.sh' | xargs -r shellcheck
 
+  # platform#35: fails a PR that introduces (or leaves) a raw Deployment
+  # container under kubernetes/ with no explicit CPU or memory limit --
+  # the exact gap (gateway/api/workers had a memory limit but no CPU
+  # limit) that previously only an external review caught, not CI or
+  # manual review. See scripts/check-resource-limits.sh for what it
+  # checks and why it's scoped to the hand-written kubernetes/ manifests,
+  # not the Helm-sourced Applications already covered by helm-render.
+  resource-limits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install yq ${{ env.YQ_VERSION }}
+        run: |
+          curl -sSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" \
+            -o /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
+
+      - name: Check container CPU/memory limits
+        run: scripts/check-resource-limits.sh
+
   ci:
-    needs: [terraform, manifests, helm-render, shell]
+    needs: [terraform, manifests, helm-render, shell, resource-limits]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -121,12 +142,14 @@ jobs:
           if [ "${{ needs.terraform.result }}" != "success" ] \
             || [ "${{ needs.manifests.result }}" != "success" ] \
             || [ "${{ needs.helm-render.result }}" != "success" ] \
-            || [ "${{ needs.shell.result }}" != "success" ]; then
+            || [ "${{ needs.shell.result }}" != "success" ] \
+            || [ "${{ needs.resource-limits.result }}" != "success" ]; then
             echo "One or more jobs failed:"
-            echo "  terraform:   ${{ needs.terraform.result }}"
-            echo "  manifests:   ${{ needs.manifests.result }}"
-            echo "  helm-render: ${{ needs.helm-render.result }}"
-            echo "  shell:       ${{ needs.shell.result }}"
+            echo "  terraform:       ${{ needs.terraform.result }}"
+            echo "  manifests:       ${{ needs.manifests.result }}"
+            echo "  helm-render:     ${{ needs.helm-render.result }}"
+            echo "  shell:           ${{ needs.shell.result }}"
+            echo "  resource-limits: ${{ needs.resource-limits.result }}"
             exit 1
           fi
           echo "All jobs succeeded."

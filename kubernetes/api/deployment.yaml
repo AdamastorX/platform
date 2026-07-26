@@ -77,5 +77,12 @@ spec:
             requests:
               cpu: 250m
               memory: 256Mi
+            # platform#35: explicit CPU limit added alongside the existing
+            # memory limit -- previously unbounded, so a runaway CPU-bound
+            # request handler had no ceiling on a single-node cluster where
+            # that directly steals capacity from every other namespace.
+            # 2x the request; resourcequota.yaml/limitrange.yaml in this
+            # same directory are sized against this value.
             limits:
+              cpu: 500m
               memory: 512Mi

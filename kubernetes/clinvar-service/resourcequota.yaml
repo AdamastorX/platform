@@ -1,0 +1,25 @@
+# platform#35: bounds total consumption of the `clinvar` namespace
+# (clinvar-service Deployment + the clinvar-postgresql Helm chart, both
+# deployed here per ADR 0019).
+#
+# Sized from real usage, not guessed -- `kubectl -n clinvar get pods -o
+# json` on the live cluster (2026-07) showed:
+#   clinvar-service:     requests cpu=250m mem=384Mi, limits cpu=1 mem=768Mi
+#   clinvar-postgresql:  requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
+# Steady-state totals: requests cpu=750m mem=896Mi, limits cpu=1750m mem=1536Mi.
+# clinvar-service is the one Deployment here (clinvar-postgresql is a
+# StatefulSet, no surge on update) -- a rolling update temporarily runs
+# two clinvar-service pods (default maxSurge=1), adding +250m/+384Mi
+# requests and +1000m/+768Mi limits at peak, which also has to cover the
+# CPU burst during a weekly ClinVar ingestion. Quota below clears that
+# peak with headroom.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 1500m
+    requests.memory: 2Gi
+    limits.cpu: 3500m
+    limits.memory: 3Gi

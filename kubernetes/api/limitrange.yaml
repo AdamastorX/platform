@@ -1,0 +1,20 @@
+# platform#35: every container in this namespace already sets an
+# explicit CPU limit (api/deployment.yaml, plus Postgres/Redis via their
+# chart's resourcesPreset), so this LimitRange is a backstop, not a fix
+# for a live gap -- it exists so a future container added here without
+# one gets a sane default instead of running unbounded, rather than
+# depending on the CI check (scripts/check-resource-limits.sh) and manual
+# review both catching it. Default matches api's own container so a
+# future addition here lands at the same size as the workload the
+# namespace was actually sized around.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-cpu-limit
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+      defaultRequest:
+        cpu: 250m
