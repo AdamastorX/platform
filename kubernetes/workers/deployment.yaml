@@ -64,5 +64,10 @@ spec:
             requests:
               cpu: 250m
               memory: 256Mi
+            # platform#35: explicit CPU limit added alongside the existing
+            # memory limit -- previously unbounded. 2x the request;
+            # resourcequota.yaml/limitrange.yaml in this same directory are
+            # sized against this value.
             limits:
+              cpu: 500m
               memory: 512Mi

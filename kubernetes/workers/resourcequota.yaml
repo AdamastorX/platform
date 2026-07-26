@@ -1,0 +1,20 @@
+# platform#35: bounds total consumption of the `workers` namespace (a
+# single Deployment, no other workloads here).
+#
+# Sized from real usage -- `kubectl -n workers get pods -o json` on the
+# live cluster (2026-07) showed the workers pod at requests cpu=250m
+# mem=256Mi, limits cpu=500m mem=512Mi (post platform#35). A rolling
+# update temporarily runs two pods (default maxSurge=1), peaking at
+# requests cpu=500m mem=512Mi, limits cpu=1000m mem=1024Mi. Quota below
+# clears that peak with headroom for a deploy to actually happen, not
+# just steady-state. Same shape as gateway's namespace, same numbers.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: 1500m
+    limits.memory: 2Gi
