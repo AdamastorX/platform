@@ -24,15 +24,85 @@ spec:
         # assumed).
         fullnameOverride: prometheus
         # This chart bundles Alertmanager, kube-state-metrics,
-        # node-exporter, and pushgateway as optional subcharts, all
-        # enabled by default. None are in scope for this issue's AC
-        # (app metrics from 3 services queryable in Grafana) --
-        # Alertmanager is M4's concern, kube-state-metrics/node-exporter
-        # are K8s/host-level metrics this AC doesn't ask for, pushgateway
-        # has no push-based source here. Disabled rather than deployed
-        # unused (ADR 0014).
+        # node-exporter, and pushgateway as optional subcharts.
+        # kube-state-metrics/node-exporter/pushgateway stay disabled for
+        # the same reasons ADR 0014 gave (K8s/host-level metrics and a
+        # push-based source this project doesn't have). Alertmanager
+        # flips to enabled here -- ADR 0020/backlog #21: alert rules are
+        # only worth shipping if something evaluates and routes them.
         alertmanager:
-          enabled: false
+          enabled: true
+          # No PVC (ADR 0020 v1 decision, mirrors ADR 0014's "no
+          # dashboards/alerts built ahead of need" caution applied to
+          # storage instead): this is Alertmanager's first deploy ever
+          # in this cluster, and its on-disk state is only the
+          # notification log and any active silences -- losing that on a
+          # pod restart in a single-operator dev cluster with no
+          # existing silence to protect is a real but small cost.
+          # Revisit if a real silence gets created and losing it on a
+          # restart actually causes a problem, not built ahead of that.
+          persistence:
+            enabled: false
+          # Alertmanager's own config (not Prometheus's rule files, see
+          # server.serverFiles below) -- one real receiver, ntfy.sh
+          # (backlog #21c). See prometheus.yaml's alertmanager.config
+          # comment further down for why ntfy over Slack/Discord/
+          # Telegram/PagerDuty/email.
+          config:
+            global: {}
+            route:
+              # group_by on alertname+job rather than the chart's
+              # cluster-wide default: this cluster's whole alert surface
+              # is 7 rules across 4 jobs (below) -- grouping tighter than
+              # that would just mean every alert gets its own
+              # notification anyway, so this is documentation of intent
+              # more than a real behavior change yet.
+              group_by: ['alertname', 'job']
+              # 30s/5m/4h: low-traffic dev cluster, no on-call rotation
+              # to page -- a few minutes of grouping delay costs nothing
+              # real, and a 4h repeat keeps a still-firing alert from
+              # re-notifying the one human who'll see it every
+              # group_interval tick.
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 4h
+              receiver: ntfy
+              routes:
+                # Basic severity routing tree (backlog #21c's AC): a
+                # critical/page-equivalent route exists structurally so
+                # #21b's future burn-rate/multi-window work has
+                # somewhere to attach a different receiver or repeat
+                # cadence later. For v1 it shares the same (only) real
+                # receiver, just faster to first-notify and re-notify --
+                # intentionally not building out a second receiver or
+                # inhibition rules nobody needs yet.
+                - matchers:
+                    - severity="critical"
+                  receiver: ntfy
+                  group_wait: 10s
+                  repeat_interval: 1h
+            receivers:
+              - name: ntfy
+                # Generic webhook_configs, not a dedicated integration --
+                # Alertmanager has no native ntfy receiver type. Verified
+                # live before choosing this shape: POSTing an
+                # Alertmanager-shaped JSON blob straight to
+                # https://ntfy.sh/<topic> (topic already in the URL, no
+                # Content-Type-triggered schema parsing at that path)
+                # returns 200 and delivers a real push notification whose
+                # body is that raw JSON -- readable (alertname, severity,
+                # summary are all in there as plain text) but not
+                # prettified. A nicer per-alert title/priority would need
+                # a small templating relay in front of ntfy; out of scope
+                # for a v1 that only needs one real, verified-live
+                # notification path to exist (ADR 0020's stated gap this
+                # closes). Topic name is a randomly-generated-once
+                # string, not a guessable/shared default -- ntfy topics
+                # are public-by-topic-name with no auth, so the only
+                # protection is not being guessable.
+                webhook_configs:
+                  - url: https://ntfy.sh/adamastorx-alerts-64ec5a92c29196ad
+                    send_resolved: true
         kube-state-metrics:
           enabled: false
         prometheus-node-exporter:
@@ -50,6 +120,18 @@ spec:
         # correctly on its own. otel-collector's own self-monitoring
         # metrics (:8888, ADR 0013) get a fourth static target --
         # monitoring the telemetry pipeline itself, not scope creep.
+        #
+        # clinvar-service (job clinvar-service) is a fifth static target,
+        # added here as part of #21: it shipped its own /metrics endpoint
+        # under #21a/observability#15 (ADR 0019/0020) but was never
+        # actually added to Prometheus's scrape config in the same PR --
+        # confirmed live against a real running Prometheus
+        # (/api/v1/targets showed no clinvar-service entry at all) before
+        # writing any alert rule against clinvar_* metrics, since an
+        # unscraped metric's alert rule would just silently never fire
+        # rather than error, the worse kind of gap. Same stable Service
+        # DNS shape as gateway/api (clinvar-service.clinvar.svc.cluster.local,
+        # ADR 0019's own namespace), so static config, not discovery.
         extraScrapeConfigs: |
           - job_name: gateway
             metrics_path: /actuator/prometheus
@@ -68,6 +150,10 @@ spec:
               - role: pod
                 namespaces:
                   names: ['workers']
+          - job_name: clinvar-service
+            metrics_path: /metrics
+            static_configs:
+              - targets: ['clinvar-service.clinvar.svc.cluster.local:80']
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
@@ -80,6 +166,221 @@ spec:
             # value -- that's what a retention policy means. Small,
             # matching the short retention.
             size: 2Gi
+        # One alert rule per SLO in ADR 0020's table (backlog #21).
+        # serverFiles.alerting_rules.yml, not a PrometheusRule CRD --
+        # same anti-Operator reasoning ADR 0014 already used to reject
+        # kube-prometheus-stack (no CRD surface for a single static
+        # Prometheus instance), applied to alerting the same way it was
+        # applied to scrape config. Every threshold below is a
+        # deliberately simple v1 pick for this project's actual traffic
+        # (a handful of manual/test requests per session, not
+        # production load) -- documented inline per rule, not derived
+        # from a real historical distribution this cluster doesn't have
+        # yet (ADR 0020 explicitly defers exact error-budget math to
+        # "once the histogram/lag metrics are live", not decided here in
+        # the abstract).
+        #
+        # What each alert means, one line, so it's not firing into a
+        # void before backlog #22 (dedicated runbooks item) writes the
+        # real first-response doc per alert:
+        #   GatewayHighErrorRate / ApiHighErrorRate: the service itself
+        #     is returning 5xx to a real share of its callers -- look at
+        #     its own logs/traces first, not a downstream dependency.
+        #   ApiVariantsLookupHighErrorRate: api's calls to
+        #     clinvar-service are failing -- check clinvar-service's own
+        #     health/logs before assuming the bug is in api.
+        #   WorkersListenerErrorRate: work-items messages are failing
+        #     processing (the `error` tag names the exception) --
+        #     check for a poison message or a downstream dependency
+        #     (Postgres) outage.
+        #   WorkersConsumerLagHigh: workers is falling behind
+        #     work-items' production rate -- check if the pod is even
+        #     running/consuming at all before assuming it's just slow.
+        #   ClinVarIngestionFreshnessBreach: no ClinVar ingestion has
+        #     completed (successfully or not) in over a week -- the
+        #     scheduled trigger may be silently dead; check
+        #     clinvar-service's logs and APScheduler state directly.
+        #   ClinVarIngestionDurationAnomaly: the last ingestion run took
+        #     several times longer than the ~90s real-data baseline --
+        #     the exact shape the double-ingestion incident had before
+        #     it became observable; check for a concurrent/overlapping
+        #     run or an unusually large source VCF.
+        serverFiles:
+          alerting_rules.yml:
+            groups:
+              - name: adamastorx-slos
+                rules:
+                  # gateway (ADR 0020: non-5xx rate on
+                  # http_server_requests_seconds_count). outcome="SERVER_ERROR"
+                  # is Micrometer's own tag (confirmed live, not assumed --
+                  # same query shape ADR 0017's dashboard already uses).
+                  # 5% breach threshold: matches the dashboard's own
+                  # existing "critical" threshold (ADR 0017), so this
+                  # isn't a new number invented for this rule. `for: 5m`
+                  # and a >0 traffic guard: a dev cluster's total request
+                  # rate is low enough that a single failed manual test
+                  # request could otherwise swing the ratio to 100% for
+                  # one scrape -- sustained over 5m with real traffic
+                  # underneath filters that out.
+                  - alert: GatewayHighErrorRate
+                    expr: >-
+                      (
+                        sum(rate(http_server_requests_seconds_count{job="gateway", outcome="SERVER_ERROR"}[5m]))
+                        /
+                        sum(rate(http_server_requests_seconds_count{job="gateway"}[5m]))
+                      ) > 0.05
+                      and sum(rate(http_server_requests_seconds_count{job="gateway"}[5m])) > 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "gateway non-5xx rate breached (>5% over 5m)"
+                      description: "gateway is returning 5xx to more than 5% of requests over the last 5m. See ADR 0020's SLO table."
+
+                  # api (ADR 0020: non-5xx rate, excluding /actuator/*
+                  # same as ADR 0017's dashboard so its own health/scrape
+                  # traffic never counts against it). Same 5%/5m
+                  # reasoning as gateway above.
+                  - alert: ApiHighErrorRate
+                    expr: >-
+                      (
+                        sum(rate(http_server_requests_seconds_count{job="api", outcome="SERVER_ERROR", uri!~"/actuator.*"}[5m]))
+                        /
+                        sum(rate(http_server_requests_seconds_count{job="api", uri!~"/actuator.*"}[5m]))
+                      ) > 0.05
+                      and sum(rate(http_server_requests_seconds_count{job="api", uri!~"/actuator.*"}[5m])) > 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "api non-5xx rate breached (>5% over 5m)"
+                      description: "api is returning 5xx to more than 5% of requests over the last 5m. See ADR 0020's SLO table."
+
+                  # api's GET /variants/lookup specifically (ADR 0020:
+                  # "its own external-dependency failure mode" -- this
+                  # path calls out to clinvar-service, a distinct
+                  # failure mode from the rest of api). 10%, not 5%: this
+                  # single endpoint sees far less traffic than api as a
+                  # whole in this dev cluster, so its ratio is noisier
+                  # per request -- a slightly higher bar avoids paging on
+                  # one or two failed manual test calls while still
+                  # catching a real clinvar-service outage (which would
+                  # push this well past 10%, not hover near it).
+                  - alert: ApiVariantsLookupHighErrorRate
+                    expr: >-
+                      (
+                        sum(rate(http_server_requests_seconds_count{job="api", outcome="SERVER_ERROR", uri="/variants/lookup"}[5m]))
+                        /
+                        sum(rate(http_server_requests_seconds_count{job="api", uri="/variants/lookup"}[5m]))
+                      ) > 0.10
+                      and sum(rate(http_server_requests_seconds_count{job="api", uri="/variants/lookup"}[5m])) > 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "api's GET /variants/lookup non-5xx rate breached (>10% over 5m)"
+                      description: "api's calls through GET /variants/lookup (its clinvar-service dependency) are failing more than 10% of the time over 5m. See ADR 0020's SLO table."
+
+                  # workers (ADR 0020: listener timer's own `error` label,
+                  # != "none", not latency). Same 5%/5m reasoning as
+                  # gateway/api's non-5xx rate -- this is workers' direct
+                  # equivalent signal, just on a different metric family
+                  # since it has no business HTTP API (ADR 0009/0011).
+                  - alert: WorkersListenerErrorRate
+                    expr: >-
+                      (
+                        sum(rate(spring_kafka_listener_seconds_count{job="workers", error!="none"}[5m]))
+                        /
+                        sum(rate(spring_kafka_listener_seconds_count{job="workers"}[5m]))
+                      ) > 0.05
+                      and sum(rate(spring_kafka_listener_seconds_count{job="workers"}[5m])) > 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "workers listener error rate breached (>5% over 5m)"
+                      description: "workers' work-items listener is failing more than 5% of processed messages over 5m (the `error` tag names the exception). See ADR 0020's SLO table."
+
+                  # workers consumer-lag threshold (ADR 0020: saturation
+                  # signal is backlog depth, not latency -- the real
+                  # metric #21a added, KafkaClientMetrics bound directly
+                  # against the hand-built ConsumerFactory). Summed
+                  # across work-items' 3 partitions (ADR 0011) for total
+                  # backlog, not just the worst single partition.
+                  # Threshold of 500: this dev cluster's real traffic is
+                  # a handful of messages per session, so a genuine
+                  # sustained backlog of 500+ un-consumed records is
+                  # already multiple orders of magnitude past normal
+                  # jitter -- picked as "obviously abnormal for this
+                  # cluster's actual load", not tuned against a real
+                  # historical distribution (ADR 0020 defers that).
+                  # `for: 10m`, longer than the HTTP/listener error
+                  # rules above: lag can spike transiently on a burst of
+                  # produced messages before workers catches up, and 10m
+                  # of sustained backlog is what separates "catching up"
+                  # from "stuck".
+                  - alert: WorkersConsumerLagHigh
+                    expr: sum(kafka_consumer_fetch_manager_records_lag{job="workers"}) > 500
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "workers consumer lag sustained above 500 records"
+                      description: "workers' work-items consumer group backlog has stayed above 500 un-consumed records for 10m. See ADR 0020's SLO table."
+
+                  # clinvar-service ingestion freshness (ADR 0020: time
+                  # since last *successful* ingestion exceeding the
+                  # scheduled weekly cadence). Known, stated limitation
+                  # (documented the same way ADR 0017 named its own
+                  # gaps): clinvar_ingestion_duration_seconds' Histogram
+                  # .time() wrapper (app/ingestion.py) records on both
+                  # success AND failure paths, so this can only detect
+                  # "no ingestion attempt at all in 8 days" (the
+                  # scheduler silently stopped firing), not "attempts
+                  # happened but every one failed". A dedicated
+                  # success-only counter would close that gap -- tracked
+                  # as backlog #21d rather than built here (this PR's
+                  # own persona rule: don't scope-creep into work a
+                  # separate, small follow-up item should own). 8 days,
+                  # not 7: the weekly cadence plus a one-day grace period
+                  # before treating a late run as a real breach rather
+                  # than ordinary scheduling jitter.
+                  - alert: ClinVarIngestionFreshnessBreach
+                    expr: increase(clinvar_ingestion_duration_seconds_count{job="clinvar-service"}[8d]) < 1
+                    for: 0m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "no ClinVar ingestion attempt recorded in over 8 days"
+                      description: "clinvar-service has not recorded a completed ingestion run (success or failure) in over 8 days -- the weekly scheduled trigger may be silently dead. See ADR 0020's SLO table and the double-ingestion incident this whole metric surface was built for."
+
+                  # clinvar-service ingestion-duration anomaly (ADR 0020:
+                  # a run taking several multiples of the ~90s real-data
+                  # baseline -- the exact signal that would have made the
+                  # double-ingestion incident visible as a metric instead
+                  # of a kubectl logs --previous read after the fact).
+                  # rate(_sum)/rate(_count) over 1h as "latest observed
+                  # duration": ingestion runs weekly, so any 1h window
+                  # containing a run's completion effectively isolates
+                  # that one run's duration -- no real p95 needed for an
+                  # event this infrequent. 4x baseline (360s): "several
+                  # multiples" per the ADR's own wording, not a tuned
+                  # number -- revisit once a real distribution of run
+                  # durations exists.
+                  - alert: ClinVarIngestionDurationAnomaly
+                    expr: >-
+                      (
+                        rate(clinvar_ingestion_duration_seconds_sum{job="clinvar-service"}[1h])
+                        /
+                        rate(clinvar_ingestion_duration_seconds_count{job="clinvar-service"}[1h])
+                      ) > 360
+                      and rate(clinvar_ingestion_duration_seconds_count{job="clinvar-service"}[1h]) > 0
+                    for: 2m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "ClinVar ingestion ran several times longer than its ~90s baseline"
+                      description: "The most recent ClinVar ingestion run's observed duration is over 360s (4x the ~90s real-data baseline). See ADR 0020's SLO table."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
