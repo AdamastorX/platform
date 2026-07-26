@@ -87,5 +87,15 @@ spec:
             # 2x the request; resourcequota.yaml/limitrange.yaml in this
             # same directory are sized against this value.
             limits:
-              cpu: 500m
+              # Bumped from 500m (platform#35's default 2x-request pick)
+              # after a real live incident: a rolling-update pod got stuck
+              # in CrashLoopBackOff, confirmed via `kubectl top pod`
+              # pegged at 498m/500m (cgroup-throttled) during JVM cold
+              # start (Hibernate/Flyway/Kafka bootstrapping all at once) --
+              # slow enough under that ceiling to miss the liveness
+              # probe's 80s budget (20s delay + 6*10s), while the
+              # already-running old pod (steady-state ~20m) kept serving
+              # traffic the whole time. 1 core clears cold start with
+              # headroom; resourcequota.yaml's limits.cpu raised to match.
+              cpu: "1"
               memory: 512Mi

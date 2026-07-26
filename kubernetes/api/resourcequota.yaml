@@ -5,15 +5,19 @@
 #
 # Sized from real usage, not guessed -- `kubectl -n api get pods -o json`
 # on the live cluster (2026-07) showed:
-#   api:        requests cpu=250m mem=256Mi, limits cpu=500m mem=512Mi (post platform#35)
+#   api:        requests cpu=250m mem=256Mi, limits cpu=1 mem=512Mi (bumped
+#               from 500m after a real CrashLoopBackOff -- see
+#               deployment.yaml's cpu-limit comment for the incident)
 #   postgresql: requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
 #   redis:      requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
-# Steady-state totals: requests cpu=1250m mem=1280Mi, limits cpu=2000m mem=2048Mi.
+# Steady-state totals: requests cpu=1250m mem=1280Mi, limits cpu=2500m mem=2048Mi.
 # api is the one Deployment here (Postgres/Redis are StatefulSets, no
 # surge on update) -- a rolling update temporarily runs two api pods
-# (default maxSurge=1), adding +250m/+256Mi requests and +500m/+512Mi
-# limits at peak. Quota below clears that peak with headroom, it isn't
-# just steady-state with no room for a deploy to happen.
+# (default maxSurge=1), adding +250m/+256Mi requests and +1/+512Mi limits
+# at peak (3500m limits.cpu at peak). Quota below clears that peak with
+# real headroom, it isn't just steady-state with no room for a deploy to
+# happen -- confirmed necessary live, not just in theory: this project
+# already hit its own too-tight quota once (the CPU limit bump above).
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -22,5 +26,5 @@ spec:
   hard:
     requests.cpu: "2"
     requests.memory: 3Gi
-    limits.cpu: "3"
+    limits.cpu: "4"
     limits.memory: 4Gi
