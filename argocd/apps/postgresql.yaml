@@ -37,14 +37,26 @@ spec:
           tag: 17.1.0-debian-12-r0
         auth:
           # A dedicated least-privilege user + database, not the
-          # postgres superuser (ADR 0012). auth.password left unset --
-          # the chart generates a random one into a Secret
-          # (common.secrets.passwords.manage, confirmed by reading the
-          # chart's own templates/secrets.yaml) under key "password",
-          # which api's Deployment reads via secretKeyRef. No credential
-          # ever lives in git.
+          # postgres superuser (ADR 0012). auth.password used to be left
+          # unset so the chart generated a random one into a Secret via
+          # common.secrets.passwords.manage -- platform#36 migrates off
+          # that entirely (root fix for platform#34: that generator's
+          # "reuse the existing Secret" idempotency needs a live-cluster
+          # Helm lookup() that ArgoCD's `helm template` rendering never
+          # performs, so every automated sync could mint a brand-new
+          # password the running container was never started with --
+          # see docs/SESSION_STATE.md's root-cause writeup). existingSecret
+          # points at a Secret this chart can no longer create or
+          # regenerate; secretKeys stay at the chart's own defaults
+          # (postgres-password / password), the same key names the
+          # chart-generated Secret already used, so the live Secret
+          # needs no rename. Provisioning: bootstrap/README.md and
+          # bootstrap/create-stateful-secrets.sh -- no credential ever
+          # lives in git (see that script's header for the
+          # plaintext-in-git-vs-out-of-band tradeoff this decided).
           username: api
           database: api
+          existingSecret: postgresql
         primary:
           resourcesPreset: small
           persistence:
@@ -63,34 +75,31 @@ spec:
     namespace: api
   syncPolicy:
     automated:
-      prune: true
+      # prune left off deliberately, platform#36: existingSecret above
+      # means this chart no longer renders a "postgresql" Secret object
+      # at all. On this already-bootstrapped cluster that object still
+      # exists live (pre-existing, now out-of-band-managed per
+      # bootstrap/README.md) -- with prune: true, the very next sync
+      # would see a live resource this Application previously created
+      # but no longer renders, and delete it out from under the running
+      # Postgres container. That's exactly the kind of live-Secret
+      # deletion this migration must not cause, so prune stays off for
+      # this Application. selfHeal is unaffected (it only reverts drift
+      # on resources still in the rendered set) and still protects
+      # everything else this Application manages.
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-  # platform#34: ArgoCD's repo-server renders this chart via `helm
-  # template`, which never has live cluster access -- confirmed by running
-  # `helm template` twice in a row, offline, with identical chart/version/
-  # values and no commits in between: `data.password`/`postgres-password`
-  # differ on every single invocation. common.secrets.passwords.manage's
-  # "reuse the existing Secret" idempotency relies on a Helm `lookup()`
-  # against a live cluster, which `helm template` cannot do -- it silently
-  # mints a fresh random password on every render instead of erroring.
-  # Every automated sync (selfHeal, or just a repo-server manifest-cache
-  # invalidation from an unrelated commit elsewhere in this repo) can
-  # therefore patch this Secret to a brand-new value that the already-
-  # running Postgres container was never started with -- exactly what
-  # happened here (see issue #34). Existing connections don't
-  # re-authenticate so nothing breaks until the next fresh connection or
-  # pod restart, which is what made this silent. ignoreDifferences on
-  # /data stops selfHeal from ever overwriting the Secret's data after
-  # initial creation, regardless of what a re-render produces; it does
-  # NOT block the Secret's initial creation for a never-before-synced
-  # Application, since ignoreDifferences only suppresses diffing/patching
-  # of an already-existing live resource.
-  ignoreDifferences:
-    - group: ""
-      kind: Secret
-      name: postgresql
-      namespace: api
-      jsonPointers:
-        - /data
+  # platform#34/#36: this Application used to need ignoreDifferences on
+  # the chart-generated "postgresql" Secret's /data, because ArgoCD's
+  # repo-server renders this chart via `helm template`, which never has
+  # live cluster access -- confirmed by running `helm template` twice in
+  # a row, offline, with identical chart/version/values and no commits
+  # in between: `data.password`/`postgres-password` differed on every
+  # single invocation. common.secrets.passwords.manage's "reuse the
+  # existing Secret" idempotency relies on a Helm lookup() against a
+  # live cluster, which `helm template` cannot do. That block is removed
+  # here (platform#36): auth.existingSecret above means the chart never
+  # emits that Secret at all anymore, so there's nothing left for
+  # selfHeal to regenerate or diff against -- the ignoreDifferences
+  # workaround is no longer needed, not left in place redundantly.
