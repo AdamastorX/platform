@@ -98,11 +98,19 @@ spec:
         # 0014 already used to reject an Operator for one static workload.
         # PromQL in each panel is built from metric names/labels confirmed
         # against a live Prometheus query, not assumed from docs -- see ADR
-        # 0017 for the two stated gaps (no latency percentiles -- Boot's
-        # histogram buckets aren't enabled; no Kafka consumer-lag metric
-        # for workers -- no client metrics binder wired up) and the
-        # dashboards-before-alerts tension this ADR resolves explicitly
-        # rather than silently.
+        # 0017 for the dashboards-before-alerts tension it resolves
+        # explicitly rather than silently, and for the two gaps it shipped
+        # with and named directly: no latency percentiles (Boot's
+        # histogram buckets weren't enabled) and no real Kafka
+        # consumer-lag metric for workers (a thread-pool-usage panel stood
+        # in as a stated proxy). Both are now closed (observability#15,
+        # ADR 0020) -- gateway/api/workers' Latency panels plot a real
+        # histogram_quantile(0.95, ...) and workers' Saturation panel
+        # plots the real kafka_consumer_fetch_manager_records_lag_max,
+        # each confirmed present on a live /actuator/prometheus scrape
+        # before this dashboard JSON was changed (see the services repo's
+        # GatewayMetricsHistogramTest/ApiMetricsHistogramTest/
+        # WorkersMetricsHistogramTest).
         dashboardProviders:
           dashboardproviders.yaml:
             apiVersion: 1
@@ -170,7 +178,8 @@ spec:
                     },
                     {
                       "id": 2,
-                      "title": "Latency \u2014 average and max request duration",
+                      "title": "Latency \u2014 p95 request duration",
+                      "description": "Real histogram_quantile(0.95, ...) over http_server_requests_seconds_bucket (observability#15, ADR 0020) \u2014 replaces the average/max stand-in ADR 0017 shipped with while Boot's percentiles-histogram property was still off. Verified: a real _bucket series was confirmed present on a live /actuator/prometheus scrape (GatewayMetricsHistogramTest) before this panel was changed.",
                       "type": "timeseries",
                       "gridPos": {
                         "x": 12,
@@ -195,17 +204,8 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum(rate(http_server_requests_seconds_sum{job=\"gateway\", uri!~\"/actuator.*\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{job=\"gateway\", uri!~\"/actuator.*\"}[$__rate_interval]))",
-                          "legendFormat": "avg duration"
-                        },
-                        {
-                          "refId": "B",
-                          "datasource": {
-                            "type": "prometheus",
-                            "uid": "prometheus"
-                          },
-                          "expr": "max(http_server_requests_seconds_max{job=\"gateway\", uri!~\"/actuator.*\"})",
-                          "legendFormat": "max duration"
+                          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"gateway\", uri!~\"/actuator.*\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 duration"
                         }
                       ]
                     },
@@ -422,7 +422,8 @@ spec:
                     },
                     {
                       "id": 2,
-                      "title": "Latency \u2014 average and max request duration",
+                      "title": "Latency \u2014 p95 request duration",
+                      "description": "Real histogram_quantile(0.95, ...) over http_server_requests_seconds_bucket (observability#15, ADR 0020) \u2014 replaces the average/max stand-in ADR 0017 shipped with while Boot's percentiles-histogram property was still off. Verified: a real _bucket series was confirmed present on a live /actuator/prometheus scrape (ApiMetricsHistogramTest) before this panel was changed.",
                       "type": "timeseries",
                       "gridPos": {
                         "x": 12,
@@ -447,17 +448,8 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum(rate(http_server_requests_seconds_sum{job=\"api\", uri!~\"/actuator.*\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{job=\"api\", uri!~\"/actuator.*\"}[$__rate_interval]))",
-                          "legendFormat": "avg duration"
-                        },
-                        {
-                          "refId": "B",
-                          "datasource": {
-                            "type": "prometheus",
-                            "uid": "prometheus"
-                          },
-                          "expr": "max(http_server_requests_seconds_max{job=\"api\", uri!~\"/actuator.*\"})",
-                          "legendFormat": "max duration"
+                          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"api\", uri!~\"/actuator.*\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 duration"
                         }
                       ]
                     },
@@ -675,7 +667,8 @@ spec:
                     },
                     {
                       "id": 2,
-                      "title": "Latency \u2014 average and max message processing time",
+                      "title": "Latency \u2014 p95 message processing time",
+                      "description": "Real histogram_quantile(0.95, ...) over spring_kafka_listener_seconds_bucket (observability#15, ADR 0020) \u2014 replaces the average/max stand-in ADR 0017 shipped with. WorkItemConsumerConfig's listener container factory is hand-built (ADR 0011), but the percentiles-histogram property is a MeterFilter keyed on meter name, applied registry-wide regardless of which bean produced the meter \u2014 verified: a real _bucket series was confirmed present on a live /actuator/prometheus scrape (WorkersMetricsHistogramTest) before this panel was changed.",
                       "type": "timeseries",
                       "gridPos": {
                         "x": 12,
@@ -700,17 +693,8 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum(rate(spring_kafka_listener_seconds_sum{job=\"workers\"}[$__rate_interval])) / sum(rate(spring_kafka_listener_seconds_count{job=\"workers\"}[$__rate_interval]))",
-                          "legendFormat": "avg processing time"
-                        },
-                        {
-                          "refId": "B",
-                          "datasource": {
-                            "type": "prometheus",
-                            "uid": "prometheus"
-                          },
-                          "expr": "max(spring_kafka_listener_seconds_max{job=\"workers\"})",
-                          "legendFormat": "max processing time"
+                          "expr": "histogram_quantile(0.95, sum(rate(spring_kafka_listener_seconds_bucket{job=\"workers\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 processing time"
                         }
                       ]
                     },
@@ -840,8 +824,8 @@ spec:
                     },
                     {
                       "id": 6,
-                      "title": "Saturation \u2014 applicationTaskExecutor pool usage",
-                      "description": "Proxy signal: no native Kafka consumer-lag metric is exposed today (verified against a live /actuator/prometheus scrape \u2014 no kafka_consumer_* series present). Consumer lag would be the more idiomatic saturation signal for a Kafka listener; revisit if this proxy stops being predictive.",
+                      "title": "Saturation \u2014 Kafka consumer lag (work-items)",
+                      "description": "Real kafka_consumer_fetch_manager_records_lag_max (observability#15, ADR 0020) \u2014 replaces the applicationTaskExecutor thread-pool-usage proxy ADR 0017 shipped with. WorkItemConsumerConfig's ConsumerFactory is hand-built (ADR 0011), so Boot's auto-configured Kafka metrics binder never saw it; KafkaClientMetrics is now bound directly against the real Consumer via ConsumerFactory.Listener#consumerAdded. Verified: this exact series was confirmed present (nonzero client_id-tagged gauge) on a live /actuator/prometheus scrape after producing and consuming a real message (WorkersMetricsHistogramTest), a real queue-depth saturation signal instead of a proxy.",
                       "type": "timeseries",
                       "gridPos": {
                         "x": 12,
@@ -855,8 +839,7 @@ spec:
                       },
                       "fieldConfig": {
                         "defaults": {
-                          "unit": "percentunit",
-                          "max": 1,
+                          "unit": "short",
                           "min": 0
                         },
                         "overrides": []
@@ -868,8 +851,8 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum(executor_active_threads{job=\"workers\", name=\"applicationTaskExecutor\"}) / sum(executor_pool_max_threads{job=\"workers\", name=\"applicationTaskExecutor\"})",
-                          "legendFormat": "executor pool used"
+                          "expr": "max(kafka_consumer_fetch_manager_records_lag_max{job=\"workers\"})",
+                          "legendFormat": "max records lag"
                         }
                       ]
                     }
