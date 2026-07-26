@@ -14,6 +14,8 @@ concurrency:
 env:
   KUBECONFORM_VERSION: v0.8.0
   SHELLCHECK_VERSION: v0.11.0
+  YQ_VERSION: v4.44.6
+  HELM_VERSION: v3.16.2
 
 jobs:
   terraform:
@@ -55,6 +57,47 @@ jobs:
           -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           argocd/ bootstrap/root-app.yaml kubernetes/
 
+  # Renders each argocd/apps/*.yaml Application that sources a Helm chart
+  # directly (spec.source.chart set) with the exact repoURL/chart/
+  # targetRevision/valuesObject it declares, then kubeconforms the actual
+  # rendered output -- not just the Application CRD wrapper the
+  # `manifests` job above already checks. This is the gap that let a Loki
+  # replication_factor misconfiguration and an otel-collector hidden-port
+  # misconfiguration both ship undetected: neither was visible from the
+  # Application manifest alone, only from what the chart actually
+  # produces once templated.
+  helm-render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install helm ${{ env.HELM_VERSION }}
+        run: |
+          curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin linux-amd64/helm
+
+      - name: Install yq ${{ env.YQ_VERSION }}
+        run: |
+          curl -sSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" \
+            -o /usr/local/bin/yq
+          chmod +x /usr/local/bin/yq
+
+      - name: Install kubeconform ${{ env.KUBECONFORM_VERSION }}
+        run: |
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Render Helm-sourced Applications
+        run: scripts/render-helm-charts.sh rendered-charts
+
+      - name: kubeconform (rendered chart output)
+        run: >
+          kubeconform -strict -summary -ignore-missing-schemas
+          -kubernetes-version 1.36.2
+          -schema-location default
+          -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          rendered-charts/*.rendered.yaml
+
   shell:
     runs-on: ubuntu-latest
     steps:
@@ -69,7 +112,7 @@ jobs:
         run: git ls-files '*.sh' | xargs -r shellcheck
 
   ci:
-    needs: [terraform, manifests, shell]
+    needs: [terraform, manifests, helm-render, shell]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -77,11 +120,13 @@ jobs:
         run: |
           if [ "${{ needs.terraform.result }}" != "success" ] \
             || [ "${{ needs.manifests.result }}" != "success" ] \
+            || [ "${{ needs.helm-render.result }}" != "success" ] \
             || [ "${{ needs.shell.result }}" != "success" ]; then
             echo "One or more jobs failed:"
-            echo "  terraform: ${{ needs.terraform.result }}"
-            echo "  manifests: ${{ needs.manifests.result }}"
-            echo "  shell:     ${{ needs.shell.result }}"
+            echo "  terraform:   ${{ needs.terraform.result }}"
+            echo "  manifests:   ${{ needs.manifests.result }}"
+            echo "  helm-render: ${{ needs.helm-render.result }}"
+            echo "  shell:       ${{ needs.shell.result }}"
             exit 1
           fi
           echo "All jobs succeeded."
