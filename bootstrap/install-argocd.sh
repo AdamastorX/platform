@@ -23,6 +23,17 @@ kubectl apply --server-side -n argocd -f "${INSTALL_URL}"
 echo "==> Waiting for ArgoCD deployments to become available"
 kubectl wait --for=condition=Available deployment --all -n argocd --timeout=300s
 
+# platform#36: postgresql/redis/clinvar-postgresql/kafka no longer let
+# their chart generate a password/cluster-id Secret (root fix for
+# platform#34) -- each one now reads a pre-created Secret instead. That
+# Secret has to exist before these Applications' first sync creates the
+# Deployment/pod reading it via secretKeyRef, so this must run before
+# root-app.yaml starts ArgoCD reconciling. See create-stateful-secrets.sh
+# for the full provisioning writeup and the plaintext-in-git-vs-out-of-
+# band tradeoff it decided.
+echo "==> Creating stateful-service Secrets (postgresql/redis/clinvar-postgresql/kafka)"
+"${SCRIPT_DIR}/create-stateful-secrets.sh"
+
 echo "==> Applying root Application (app-of-apps entrypoint)"
 kubectl apply -n argocd -f "${SCRIPT_DIR}/root-app.yaml"
 
