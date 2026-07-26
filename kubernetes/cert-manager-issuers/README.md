@@ -42,4 +42,4 @@ internal-only endpoints.
 
 Annotate an Ingress with `cert-manager.io/cluster-issuer: adamastorx-ca`
 and give it a `tls` section — ingress-shim creates and renews the
-`Certificate`. See [`../whoami/ingress.yaml`](../whoami/ingress.yaml).
+`Certificate`. See [`../api/ingress.yaml`](../api/ingress.yaml).

@@ -62,10 +62,12 @@ spec:
         # Chart defaults every listener to SASL_PLAINTEXT with generated
         # credentials. Nothing outside the cluster ever talks to Kafka
         # (ClusterIP only, no externalAccess) and there's no service mesh
-        # (PROJECT.md excludes one) — same trust model gateway/api already
-        # use for each other (ADR 0010, no auth between in-cluster
-        # services). PLAINTEXT avoids standing up Secret-based credential
-        # rotation for a dev broker nothing external can reach.
+        # (PROJECT.md excludes one) — same no-auth-between-in-cluster-
+        # services trust model api's own Ingress/Service already use (ADR
+        # 0010, superseded by ADR 0021's removal of `gateway`, but its
+        # trust-model reasoning still applies). PLAINTEXT avoids standing
+        # up Secret-based credential rotation for a dev broker nothing
+        # external can reach.
         listeners:
           client:
             protocol: PLAINTEXT

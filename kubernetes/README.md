@@ -6,5 +6,5 @@ each is deployed by a matching ArgoCD `Application` under
 
 | Dir | What |
 |---|---|
-| `whoami/` | Trivial GitOps proof app (`traefik/whoami` Deployment + ClusterIP Service + TLS Ingress) |
+| `api/` | The one public application service; `ingress.yaml` + cert-manager Certificate is the live Traefik+TLS+service path (ADR 0021/backlog #S1) |
 | `cert-manager-issuers/` | Project CA: self-signed bootstrap CA + `adamastorx-ca` ClusterIssuer (see its README for why not Let's Encrypt) |

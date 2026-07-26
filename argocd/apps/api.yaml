@@ -1,8 +1,15 @@
 # First deploy of the api service (services#2 AC "deploys via the M1
-# pipeline") — bootstraps its existence in-cluster per ADR 0009. ClusterIP
-# only, no Ingress: api is never externally reachable except through the
-# gateway's forwarding controller (ADR 0010). Future SHA bumps are one-line
-# image-tag diffs to kubernetes/api/deployment.yaml.
+# pipeline") — bootstraps its existence in-cluster per ADR 0009. Future
+# SHA bumps are one-line image-tag diffs to kubernetes/api/deployment.yaml.
+#
+# api now also owns its own public Ingress + cert-manager Certificate
+# (kubernetes/api/ingress.yaml, ADR 0021/backlog #S1) -- this Application
+# already applies every manifest under kubernetes/api/ as a directory, so
+# no extra wiring was needed here beyond adding that file. This supersedes
+# ADR 0010's gateway-forwarding path: gateway carried exactly one
+# placeholder route, never wired to real traffic, and has been deleted
+# along with whoami (backlog #S1/#S2); api's Ingress is now the live
+# Traefik+TLS+service path.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

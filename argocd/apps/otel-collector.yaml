@@ -9,8 +9,9 @@
 # uses.
 #
 # Own `otel` namespace (ADR 0009's per-component pattern, same reasoning
-# as Kafka): three consumers (gateway, api, workers all push to it), and
-# no credential to worry about — the OTLP receiver is open to the
+# as Kafka): two consumers (api, workers both push to it — `gateway` was
+# a third until ADR 0021/backlog #S1 removed it), and no credential to
+# worry about — the OTLP receiver is open to the
 # cluster like Kafka's PLAINTEXT listener, nothing outside the cluster
 # reaches it. Unlike Postgres, there's no secretKeyRef cross-namespace
 # problem here to force it into a consumer's own namespace.

@@ -25,7 +25,7 @@ means removed from the cluster; manual drift gets reverted.
 
 | App | Source | What |
 |---|---|---|
-| [`whoami`](apps/whoami.yaml) | `../kubernetes/whoami/` | GitOps proof app; also the TLS-through-Traefik proof (Ingress + cert from `adamastorx-ca`) |
+| [`api`](apps/api.yaml) | `../kubernetes/api/` | The one public application service; its own Ingress + cert-manager Certificate is the live Traefik+TLS+service path (ADR 0021/backlog #S1, superseding the removed `gateway`/`whoami`) |
 | [`traefik`](apps/traefik.yaml) | Helm chart `traefik` 41.0.2 | Ingress controller (k3s's bundled one is disabled) |
 | [`cert-manager`](apps/cert-manager.yaml) | Helm chart `cert-manager` v1.21.0 | Certificate issuance/renewal operator |
 | [`cert-manager-issuers`](apps/cert-manager-issuers.yaml) | `../kubernetes/cert-manager-issuers/` | Project CA: self-signed bootstrap CA + `adamastorx-ca` ClusterIssuer |
@@ -44,9 +44,12 @@ means removed from the cluster; manual drift gets reverted.
    - automated sync policy (prune + selfHeal)
 3. Open a PR. On merge, ArgoCD picks it up and deploys — no kubectl.
 
-Use [`apps/whoami.yaml`](apps/whoami.yaml) as the template; it is the
-minimal proof app from the bootstrap (a `traefik/whoami` Deployment +
-ClusterIP Service under `../kubernetes/whoami/`).
+Use [`apps/api.yaml`](apps/api.yaml) as the template for an app with a
+public Ingress, or [`apps/workers.yaml`](apps/workers.yaml) for one
+without (Deployment + ClusterIP Service only). The original minimal
+proof app, `whoami`, was removed by ADR 0021/backlog #S2 once `api` grew
+its own Ingress + cert-manager Certificate (backlog #S1) and became the
+standing ingress+TLS proof instead.
 
 Third-party components install straight from their official Helm repos:
 `spec.source` uses the chart repo URL, `chart:`, a **pinned**
@@ -88,8 +91,9 @@ annotation (cert-manager's CRDs do, Traefik's get close).
 
 - **Broker only, this PR** — the `work-items` topic is provisioned here too
   (chart's built-in `provisioning` Job), but the `workers` consumer service
-  is a separate deploy once its image is published, mirroring how
-  gateway/api followed their own scaffold PRs.
+  is a separate deploy once its image is published, mirroring how `api`
+  (and, until ADR 0021/backlog #S1 removed it, `gateway`) followed their
+  own scaffold PRs.
 - **`docker.io/bitnamilegacy/kafka` image, not the chart's default
   `docker.io/bitnami/kafka`** — Bitnami stopped publishing versioned tags
   to the free `docker.io/bitnami/*` catalog in Aug 2025 (Bitnami Secure
@@ -99,9 +103,10 @@ annotation (cert-manager's CRDs do, Traefik's get close).
   if this ever needs to move past Kafka 4.0.0.
 - **PLAINTEXT listeners, not the chart default `SASL_PLAINTEXT`** — Kafka
   is ClusterIP-only and nothing outside the cluster ever reaches it; same
-  no-auth-between-in-cluster-services trust model gateway/api already use
-  (ADR 0010). Avoids standing up Secret-based SASL credential rotation for
-  a broker with no external attack surface.
+  no-auth-between-in-cluster-services trust model `api` already uses (ADR
+  0010, superseded by ADR 0021's removal of `gateway`, but its trust-model
+  reasoning still applies). Avoids standing up Secret-based SASL
+  credential rotation for a broker with no external attack surface.
 - **`persistence.enabled: false` (emptyDir), not a PVC** — ADR 0011
   explicitly accepts topic data loss on broker restart at this stage;
   emptyDir needs no StorageClass and matches "simplest option that fits."

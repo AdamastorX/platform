@@ -7,7 +7,8 @@
 # update temporarily runs two pods (default maxSurge=1), peaking at
 # requests cpu=500m mem=512Mi, limits cpu=1000m mem=1024Mi. Quota below
 # clears that peak with headroom for a deploy to actually happen, not
-# just steady-state. Same shape as gateway's namespace, same numbers.
+# just steady-state. Same shape gateway's namespace used before it was
+# removed (ADR 0021/backlog #S1); the numbers matched.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
