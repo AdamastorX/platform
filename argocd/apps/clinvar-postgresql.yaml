@@ -30,8 +30,14 @@ spec:
           repository: bitnamilegacy/postgresql
           tag: 17.1.0-debian-12-r0
         auth:
+          # existingSecret migration (platform#36) -- same root cause
+          # and same fix as api's own postgresql.yaml: see that file's
+          # auth block comment for the full writeup. secretKeys stay at
+          # the chart defaults (postgres-password / password), matching
+          # this Secret's existing chart-generated key names.
           username: clinvar
           database: clinvar
+          existingSecret: clinvar-postgresql
         primary:
           resourcesPreset: small
           persistence:
@@ -43,17 +49,16 @@ spec:
     namespace: clinvar
   syncPolicy:
     automated:
-      prune: true
+      # prune off, same reason as api's own postgresql.yaml
+      # (platform#36): this chart no longer renders a
+      # "clinvar-postgresql" Secret at all, and that object already
+      # exists live on this cluster -- prune: true would delete it out
+      # from under the running clinvar Postgres on the next sync.
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-  # platform#34: same chart, same confirmed `helm template` non-
-  # idempotency as api's own postgresql.yaml -- see that file's
-  # ignoreDifferences comment for the full root-cause writeup.
-  ignoreDifferences:
-    - group: ""
-      kind: Secret
-      name: clinvar-postgresql
-      namespace: clinvar
-      jsonPointers:
-        - /data
+  # platform#34/#36: used to need ignoreDifferences for the same
+  # chart-generated-Secret non-idempotency as api's own postgresql.yaml
+  # -- see that file's syncPolicy comment for the full writeup. Removed
+  # here: auth.existingSecret above means the chart never emits this
+  # Secret anymore, so there's nothing left to diff/regenerate.
