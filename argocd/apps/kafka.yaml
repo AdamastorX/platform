@@ -122,3 +122,20 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+  # platform#34: PLAINTEXT listeners mean there's no SASL credential at
+  # risk here, but the chart's Secret "kafka-kraft" (cluster-id,
+  # controller-0-id) uses the same common.secrets.passwords.manage
+  # auto-generation mechanism -- confirmed by rendering this chart twice
+  # in a row, offline, with identical inputs: both values differ on every
+  # render, same non-idempotency as Postgres/Redis's passwords. Broker
+  # persistence is disabled here (emptyDir, ADR 0011) so a drifted
+  # cluster-id is lower-stakes than a drifted DB password, but there's no
+  # reason to leave selfHeal free to rewrite a KRaft cluster identity out
+  # from under a running broker either.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: kafka-kraft
+      namespace: kafka
+      jsonPointers:
+        - /data

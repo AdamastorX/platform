@@ -106,3 +106,16 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+  # platform#34: same common.secrets.passwords.manage / `helm template`
+  # non-idempotency confirmed for Postgres also reproduces here --
+  # rendering this chart twice in a row, offline, with identical inputs
+  # produces a different redis-password every time. Same fix: stop
+  # selfHeal from ever patching this Secret's data after its initial
+  # creation.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: redis
+      namespace: api
+      jsonPointers:
+        - /data

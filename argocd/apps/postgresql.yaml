@@ -67,3 +67,30 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+  # platform#34: ArgoCD's repo-server renders this chart via `helm
+  # template`, which never has live cluster access -- confirmed by running
+  # `helm template` twice in a row, offline, with identical chart/version/
+  # values and no commits in between: `data.password`/`postgres-password`
+  # differ on every single invocation. common.secrets.passwords.manage's
+  # "reuse the existing Secret" idempotency relies on a Helm `lookup()`
+  # against a live cluster, which `helm template` cannot do -- it silently
+  # mints a fresh random password on every render instead of erroring.
+  # Every automated sync (selfHeal, or just a repo-server manifest-cache
+  # invalidation from an unrelated commit elsewhere in this repo) can
+  # therefore patch this Secret to a brand-new value that the already-
+  # running Postgres container was never started with -- exactly what
+  # happened here (see issue #34). Existing connections don't
+  # re-authenticate so nothing breaks until the next fresh connection or
+  # pod restart, which is what made this silent. ignoreDifferences on
+  # /data stops selfHeal from ever overwriting the Secret's data after
+  # initial creation, regardless of what a re-render produces; it does
+  # NOT block the Secret's initial creation for a never-before-synced
+  # Application, since ignoreDifferences only suppresses diffing/patching
+  # of an already-existing live resource.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: postgresql
+      namespace: api
+      jsonPointers:
+        - /data
