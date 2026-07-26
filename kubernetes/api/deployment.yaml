@@ -18,7 +18,7 @@ spec:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/api:f9e9ec4727c40b0401c5780330d77c8610c1d1c4
+          image: ghcr.io/adamastorx/api:e49be616576c5e0ac64d505132774178624e7371
           ports:
             - name: http
               containerPort: 8080
