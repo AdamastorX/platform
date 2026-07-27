@@ -1,0 +1,37 @@
+# Fixed local address for Alertmanager (no more port-forward for
+# day-to-day access) -- same adamastorx-ca/Traefik pattern api/grafana/
+# prometheus already use. A standalone manifest, not part of the
+# prometheus chart's own values: the prometheus-community/prometheus
+# chart's Alertmanager subchart has no `ingress` key at all (confirmed
+# by rendering `helm show values` for the pinned chart version -- only
+# `server.ingress` exists, Alertmanager isn't the same standalone chart
+# that normally ships one). Targets the real Service name confirmed
+# live (`kubectl get svc -n prometheus`): `prometheus-alertmanager`,
+# port 9093. Local-only for now (ADR 0004, no public DNS yet): add a
+# /etc/hosts entry for alertmanager.local.adamastorx.dev pointing at
+# the node's IP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alertmanager
+  labels:
+    app: alertmanager
+  annotations:
+    cert-manager.io/cluster-issuer: adamastorx-ca
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: alertmanager.local.adamastorx.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-alertmanager
+                port:
+                  number: 9093
+  tls:
+    - hosts:
+        - alertmanager.local.adamastorx.dev
+      secretName: alertmanager-tls

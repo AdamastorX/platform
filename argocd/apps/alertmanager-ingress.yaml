@@ -1,0 +1,29 @@
+# Standalone Ingress for Alertmanager (fixed local address, no more
+# port-forward) -- a separate Application from `prometheus` itself
+# because the prometheus-community/prometheus chart's Alertmanager
+# subchart has no native `ingress` values key (confirmed by rendering
+# the chart's values locally; only `server.ingress` exists). Destination
+# namespace is `prometheus` since that's where the real
+# `prometheus-alertmanager` Service this Ingress targets actually lives.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alertmanager-ingress
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/alertmanager-ingress
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

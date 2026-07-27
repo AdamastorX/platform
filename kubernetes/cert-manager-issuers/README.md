@@ -43,3 +43,35 @@ internal-only endpoints.
 Annotate an Ingress with `cert-manager.io/cluster-issuer: adamastorx-ca`
 and give it a `tls` section — ingress-shim creates and renews the
 `Certificate`. See [`../api/ingress.yaml`](../api/ingress.yaml).
+
+## Fixed local addresses, no more port-forward
+
+`api`, `grafana`, `prometheus`, and `alertmanager` each have a stable
+`*.local.adamastorx.dev` Ingress (Traefik, hostPort 80/443, ADR 0005).
+None of this resolves anywhere by default — it's not public DNS (see
+above), just a hostname pattern. Two one-time steps make it actually
+work without a manual `--resolve`/`--cacert` flag every time:
+
+**1. Resolve the hostnames.** Add one line per service to `/etc/hosts`
+(the node's IP — update this if the cluster ever moves, e.g. to a
+dedicated desktop host, per the roadmap note above):
+
+```
+192.168.1.10 api.local.adamastorx.dev grafana.local.adamastorx.dev prometheus.local.adamastorx.dev alertmanager.local.adamastorx.dev
+```
+
+**2. Trust the CA once**, instead of passing `--cacert adamastorx-ca.crt`
+to every `curl`/browser:
+
+```sh
+kubectl get secret -n cert-manager adamastorx-root-ca \
+  -o jsonpath='{.data.ca\.crt}' | base64 -d | sudo tee /usr/local/share/ca-certificates/adamastorx-ca.crt
+sudo update-ca-certificates
+```
+
+(Firefox keeps its own trust store — import the same file under
+Settings → Privacy & Security → Certificates → View Certificates →
+Authorities → Import.)
+
+After both: `https://grafana.local.adamastorx.dev` just works, in a
+browser or `curl`, no flags.
