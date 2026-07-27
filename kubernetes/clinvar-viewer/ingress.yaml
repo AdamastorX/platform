@@ -1,0 +1,29 @@
+# Same adamastorx-ca/Traefik pattern api/grafana/prometheus/alertmanager
+# already use (ADR 0021). This is the origin api's VariantLookupController
+# CORS allowlist actually references -- keep the two in sync if this
+# hostname ever changes.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: clinvar-viewer
+  labels:
+    app: clinvar-viewer
+  annotations:
+    cert-manager.io/cluster-issuer: adamastorx-ca
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: clinvar-viewer.local.adamastorx.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: clinvar-viewer
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - clinvar-viewer.local.adamastorx.dev
+      secretName: clinvar-viewer-tls

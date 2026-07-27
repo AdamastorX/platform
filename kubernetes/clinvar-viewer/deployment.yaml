@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clinvar-viewer
+  labels:
+    app: clinvar-viewer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clinvar-viewer
+  template:
+    metadata:
+      labels:
+        app: clinvar-viewer
+    spec:
+      containers:
+        - name: clinvar-viewer
+          # Image tag is the services repo's commit SHA (ADR 0008/0009) --
+          # bump this one line and open a PR to deploy a new build.
+          image: ghcr.io/adamastorx/clinvar-viewer:55f533ce0a75f5c8c9addaf5bb926cb9d98cd707
+          ports:
+            - name: http
+              containerPort: 8080
+          # Static nginx, no external dependency to check -- the
+          # container's own listen socket is the whole health signal.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 64Mi

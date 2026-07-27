@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: clinvar-viewer
+  labels:
+    app: clinvar-viewer
+spec:
+  type: ClusterIP
+  selector:
+    app: clinvar-viewer
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

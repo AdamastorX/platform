@@ -1,0 +1,27 @@
+# clinvar-viewer: static IGV.js variant explorer, first deploy. Own
+# namespace, own Ingress (ADR 0021's api/grafana/prometheus/alertmanager
+# pattern), CORS-allowlisted by api's VariantLookupController to call
+# GET /variants/lookup from its own origin. No credentials, no state --
+# a plain nginx-served static site.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clinvar-viewer
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/clinvar-viewer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clinvar-viewer
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
