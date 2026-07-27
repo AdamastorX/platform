@@ -1,0 +1,14 @@
+# platform#35: bounds total consumption of the `clinvar-viewer` namespace.
+# One tiny static-nginx Deployment, no other workload -- sized with
+# rolling-update surge headroom (+1 replica) over the container's own
+# 250m/64Mi limit.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 200m
+    requests.memory: 128Mi
+    limits.cpu: 500m
+    limits.memory: 256Mi
