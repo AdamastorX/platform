@@ -34,18 +34,18 @@ spec:
         # day-to-day access) -- same adamastorx-ca ClusterIssuer/Traefik
         # pattern api's own Ingress uses (ADR 0021). No public DNS yet
         # (ADR 0004), so this only resolves locally: add a /etc/hosts
-        # entry pointing grafana.local.adamastorx.dev at the node's IP.
+        # entry pointing grafana.local.adamastorx.test at the node's IP.
         ingress:
           enabled: true
           ingressClassName: traefik
           annotations:
             cert-manager.io/cluster-issuer: adamastorx-ca
           hosts:
-            - grafana.local.adamastorx.dev
+            - grafana.local.adamastorx.test
           tls:
             - secretName: grafana-tls
               hosts:
-                - grafana.local.adamastorx.dev
+                - grafana.local.adamastorx.test
         # Provisioned datasources, not manually-clicked-in ones -- code,
         # not clickops. Prometheus Service name confirmed by rendering
         # its chart locally (fullnameOverride: prometheus still yields

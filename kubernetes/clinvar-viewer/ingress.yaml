@@ -13,7 +13,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: clinvar-viewer.local.adamastorx.dev
+    - host: clinvar-viewer.local.adamastorx.test
       http:
         paths:
           - path: /
@@ -25,5 +25,5 @@ spec:
                   name: http
   tls:
     - hosts:
-        - clinvar-viewer.local.adamastorx.dev
+        - clinvar-viewer.local.adamastorx.test
       secretName: clinvar-viewer-tls
