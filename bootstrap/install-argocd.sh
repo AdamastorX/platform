@@ -23,6 +23,21 @@ kubectl apply --server-side -n argocd -f "${INSTALL_URL}"
 echo "==> Waiting for ArgoCD deployments to become available"
 kubectl wait --for=condition=Available deployment --all -n argocd --timeout=300s
 
+# argocd-server terminates its own TLS by default and 307-redirects any
+# plain-HTTP request to itself over HTTPS -- confirmed live, not assumed
+# (port-forwarding :80 and curling it returns a redirect to
+# https://localhost:<port>, the wrong host entirely from a real client).
+# Pointing an Ingress at port 80 without this would either redirect-loop
+# or send clients to the wrong place. `server.insecure: "true"` makes
+# argocd-server serve plain HTTP internally and let Traefik/cert-manager
+# be the only TLS termination point, same as every other Ingress-fronted
+# service here (adamastorx-ca, ADR 0021's fixed-local-addresses pattern).
+echo "==> Setting argocd-server to insecure mode (Traefik/cert-manager is the TLS termination point, not argocd-server itself)"
+kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge \
+  -p '{"data":{"server.insecure":"true"}}'
+kubectl rollout restart deployment argocd-server -n argocd
+kubectl rollout status deployment argocd-server -n argocd --timeout=120s
+
 # platform#36: postgresql/redis/clinvar-postgresql/kafka no longer let
 # their chart generate a password/cluster-id Secret (root fix for
 # platform#34) -- each one now reads a pre-created Secret instead. That
@@ -38,5 +53,8 @@ echo "==> Applying root Application (app-of-apps entrypoint)"
 kubectl apply -n argocd -f "${SCRIPT_DIR}/root-app.yaml"
 
 echo "==> Done. From here on, all cluster changes go through Git."
-echo "    UI:       kubectl port-forward svc/argocd-server -n argocd 8080:443"
+echo "    UI:       https://argocd.local.adamastorx.test (once root-app.yaml"
+echo "              has synced argocd/apps/argocd-ingress.yaml -- see"
+echo "              kubernetes/cert-manager-issuers/README.md for the"
+echo "              /etc/hosts + CA-trust setup this needs)"
 echo "    Password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"

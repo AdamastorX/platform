@@ -1,0 +1,27 @@
+# Standalone Ingress for the ArgoCD UI (fixed local address, no more
+# port-forward) -- a separate Application from ArgoCD itself, since
+# ArgoCD's own core components are installed once, out-of-band, by
+# bootstrap/install-argocd.sh (pre-GitOps by definition), not managed
+# as an Application the way every other component here is.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-ingress
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/argocd-ingress
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
