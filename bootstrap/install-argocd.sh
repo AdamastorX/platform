@@ -38,7 +38,7 @@ kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge \
 kubectl rollout restart deployment argocd-server -n argocd
 kubectl rollout status deployment argocd-server -n argocd --timeout=120s
 
-# platform#36: postgresql/redis/clinvar-postgresql/kafka no longer let
+# platform#36: postgresql/redis/clinvar-postgresql/kafka/grafana no longer let
 # their chart generate a password/cluster-id Secret (root fix for
 # platform#34) -- each one now reads a pre-created Secret instead. That
 # Secret has to exist before these Applications' first sync creates the
@@ -46,7 +46,7 @@ kubectl rollout status deployment argocd-server -n argocd --timeout=120s
 # root-app.yaml starts ArgoCD reconciling. See create-stateful-secrets.sh
 # for the full provisioning writeup and the plaintext-in-git-vs-out-of-
 # band tradeoff it decided.
-echo "==> Creating stateful-service Secrets (postgresql/redis/clinvar-postgresql/kafka)"
+echo "==> Creating stateful-service Secrets (postgresql/redis/clinvar-postgresql/kafka/grafana)"
 "${SCRIPT_DIR}/create-stateful-secrets.sh"
 
 echo "==> Applying root Application (app-of-apps entrypoint)"
