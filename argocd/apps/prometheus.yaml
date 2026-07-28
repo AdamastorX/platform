@@ -168,18 +168,18 @@ spec:
           # access) -- same adamastorx-ca/Traefik pattern api's own
           # Ingress uses (ADR 0021). Local-only for now (ADR 0004, no
           # public DNS yet): add a /etc/hosts entry for
-          # prometheus.local.adamastorx.dev pointing at the node's IP.
+          # prometheus.local.adamastorx.test pointing at the node's IP.
           ingress:
             enabled: true
             ingressClassName: traefik
             annotations:
               cert-manager.io/cluster-issuer: adamastorx-ca
             hosts:
-              - prometheus.local.adamastorx.dev
+              - prometheus.local.adamastorx.test
             tls:
               - secretName: prometheus-tls
                 hosts:
-                  - prometheus.local.adamastorx.dev
+                  - prometheus.local.adamastorx.test
         # One alert rule per SLO in ADR 0020's table (backlog #21).
         # serverFiles.alerting_rules.yml, not a PrometheusRule CRD --
         # same anti-Operator reasoning ADR 0014 already used to reject

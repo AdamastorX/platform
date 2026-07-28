@@ -4,8 +4,8 @@
 # wired to real traffic) and standing in for whoami's Ingress (deleted:
 # backlog #S2) as the ingress+cert-manager proof. No public DNS: resolve
 # the host locally, e.g.
-#   curl --resolve api.local.adamastorx.dev:443:127.0.0.1 \
-#        --cacert adamastorx-ca.crt https://api.local.adamastorx.dev/
+#   curl --resolve api.local.adamastorx.test:443:127.0.0.1 \
+#        --cacert adamastorx-ca.crt https://api.local.adamastorx.test/
 # (CA export: see ../cert-manager-issuers/README.md)
 #
 # api is a JVM service (Spring Boot) -- cold start is slower than
@@ -24,7 +24,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: api.local.adamastorx.dev
+    - host: api.local.adamastorx.test
       http:
         paths:
           - path: /
@@ -36,5 +36,5 @@ spec:
                   name: http
   tls:
     - hosts:
-        - api.local.adamastorx.dev
+        - api.local.adamastorx.test
       secretName: api-tls

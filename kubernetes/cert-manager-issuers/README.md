@@ -46,32 +46,54 @@ and give it a `tls` section — ingress-shim creates and renews the
 
 ## Fixed local addresses, no more port-forward
 
-`api`, `grafana`, `prometheus`, and `alertmanager` each have a stable
-`*.local.adamastorx.dev` Ingress (Traefik, hostPort 80/443, ADR 0005).
-None of this resolves anywhere by default — it's not public DNS (see
-above), just a hostname pattern. Two one-time steps make it actually
-work without a manual `--resolve`/`--cacert` flag every time:
+`api`, `grafana`, `prometheus`, `alertmanager`, and `clinvar-viewer`
+each have a stable `*.local.adamastorx.test` Ingress (Traefik, hostPort
+80/443, ADR 0005). None of this resolves anywhere by default — it's not
+public DNS (see above), just a hostname pattern. Two one-time steps
+make it actually work without a manual `--resolve`/`--cacert` flag
+every time:
+
+**`.test`, not `.dev`.** The first version of this used
+`*.local.adamastorx.dev` — real, live-tested, and it broke in both
+Chrome and Firefox with an unrecoverable HSTS error ("you cannot add an
+exception"), even before the CA had been trusted anywhere. `.dev` is
+Google-owned and HSTS-preloaded into every major browser unconditionally
+— every `.dev` hostname is forced into strict-HTTPS-with-a-fully-trusted-
+cert with **no manual override available at all**, unlike a normal
+self-signed-cert warning. `.test` is IANA-reserved specifically for
+non-public testing, never delegated, and not on any preload list —
+confirmed live, no HSTS error, once the CA above is trusted.
 
 **1. Resolve the hostnames.** Add one line per service to `/etc/hosts`
 (the node's IP — update this if the cluster ever moves, e.g. to a
 dedicated desktop host, per the roadmap note above):
 
 ```
-192.168.1.10 api.local.adamastorx.dev grafana.local.adamastorx.dev prometheus.local.adamastorx.dev alertmanager.local.adamastorx.dev
+192.168.1.10 api.local.adamastorx.test grafana.local.adamastorx.test prometheus.local.adamastorx.test alertmanager.local.adamastorx.test clinvar-viewer.local.adamastorx.test
 ```
 
 **2. Trust the CA once**, instead of passing `--cacert adamastorx-ca.crt`
-to every `curl`/browser:
+to every `curl`/browser. Three separate trust stores in practice, not
+one — confirmed live, not assumed (Chrome/Chromium on Linux does *not*
+read the system OpenSSL store `update-ca-certificates` populates; it
+has its own NSS database):
 
 ```sh
 kubectl get secret -n cert-manager adamastorx-root-ca \
-  -o jsonpath='{.data.ca\.crt}' | base64 -d | sudo tee /usr/local/share/ca-certificates/adamastorx-ca.crt
+  -o jsonpath='{.data.ca\.crt}' | base64 -d > adamastorx-ca.crt
+
+# curl and most other Linux tools:
+sudo cp adamastorx-ca.crt /usr/local/share/ca-certificates/
 sudo update-ca-certificates
+
+# Chrome/Chromium (its own NSS store, not the system one above):
+sudo apt install libnss3-tools  # if not already present
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "adamastorx-ca" -i adamastorx-ca.crt
+# then fully quit and reopen Chrome, not just the tab
+
+# Firefox (its own store too): Settings → Privacy & Security →
+# Certificates → View Certificates → Authorities → Import → adamastorx-ca.crt
 ```
 
-(Firefox keeps its own trust store — import the same file under
-Settings → Privacy & Security → Certificates → View Certificates →
-Authorities → Import.)
-
-After both: `https://grafana.local.adamastorx.dev` just works, in a
-browser or `curl`, no flags.
+After all three: `https://grafana.local.adamastorx.test` just works, in
+any browser or `curl`, no flags.

@@ -8,7 +8,7 @@
 # that normally ships one). Targets the real Service name confirmed
 # live (`kubectl get svc -n prometheus`): `prometheus-alertmanager`,
 # port 9093. Local-only for now (ADR 0004, no public DNS yet): add a
-# /etc/hosts entry for alertmanager.local.adamastorx.dev pointing at
+# /etc/hosts entry for alertmanager.local.adamastorx.test pointing at
 # the node's IP.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -21,7 +21,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: alertmanager.local.adamastorx.dev
+    - host: alertmanager.local.adamastorx.test
       http:
         paths:
           - path: /
@@ -33,5 +33,5 @@ spec:
                   number: 9093
   tls:
     - hosts:
-        - alertmanager.local.adamastorx.dev
+        - alertmanager.local.adamastorx.test
       secretName: alertmanager-tls
