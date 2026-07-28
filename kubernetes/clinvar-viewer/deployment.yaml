@@ -18,7 +18,7 @@ spec:
         - name: clinvar-viewer
           # Image tag is the services repo's commit SHA (ADR 0008/0009) --
           # bump this one line and open a PR to deploy a new build.
-          image: ghcr.io/adamastorx/clinvar-viewer:55f533ce0a75f5c8c9addaf5bb926cb9d98cd707
+          image: ghcr.io/adamastorx/clinvar-viewer:2d634bd4532204e95e9392b0ee23f9373cf2e9ca
           ports:
             - name: http
               containerPort: 8080
