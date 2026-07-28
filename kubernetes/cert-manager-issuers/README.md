@@ -46,12 +46,17 @@ and give it a `tls` section — ingress-shim creates and renews the
 
 ## Fixed local addresses, no more port-forward
 
-`api`, `grafana`, `prometheus`, `alertmanager`, and `clinvar-viewer`
-each have a stable `*.local.adamastorx.test` Ingress (Traefik, hostPort
-80/443, ADR 0005). None of this resolves anywhere by default — it's not
-public DNS (see above), just a hostname pattern. Two one-time steps
-make it actually work without a manual `--resolve`/`--cacert` flag
-every time:
+`api`, `grafana`, `prometheus`, `alertmanager`, `clinvar-viewer`, and
+`argocd` (the ArgoCD UI itself) each have a stable
+`*.local.adamastorx.test` Ingress (Traefik, hostPort 80/443, ADR 0005).
+ArgoCD's own `argocd-server` terminates its own TLS and 307-redirects
+plain HTTP by default -- `server.insecure: "true"` (set in
+`bootstrap/install-argocd.sh`) makes it serve plain HTTP internally
+instead, so Traefik/cert-manager stays the single TLS termination point
+for every service here, not just the GitOps-managed ones. None of this
+resolves anywhere by default — it's not public DNS (see above), just a
+hostname pattern. Two one-time steps make it actually work without a
+manual `--resolve`/`--cacert` flag every time:
 
 **`.test`, not `.dev`.** The first version of this used
 `*.local.adamastorx.dev` — real, live-tested, and it broke in both
@@ -69,7 +74,7 @@ confirmed live, no HSTS error, once the CA above is trusted.
 dedicated desktop host, per the roadmap note above):
 
 ```
-192.168.1.10 api.local.adamastorx.test grafana.local.adamastorx.test prometheus.local.adamastorx.test alertmanager.local.adamastorx.test clinvar-viewer.local.adamastorx.test
+192.168.1.10 api.local.adamastorx.test grafana.local.adamastorx.test prometheus.local.adamastorx.test alertmanager.local.adamastorx.test clinvar-viewer.local.adamastorx.test argocd.local.adamastorx.test
 ```
 
 **2. Trust the CA once**, instead of passing `--cacert adamastorx-ca.crt`

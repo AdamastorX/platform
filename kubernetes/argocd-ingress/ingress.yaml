@@ -1,0 +1,33 @@
+# Fixed local address for the ArgoCD UI (no more port-forward) -- same
+# adamastorx-ca/Traefik pattern api/grafana/prometheus/alertmanager/
+# clinvar-viewer already use. A standalone manifest, not part of
+# ArgoCD's own upstream install (that's applied once, out-of-band, by
+# bootstrap/install-argocd.sh -- see that script's `server.insecure`
+# step: argocd-server terminates its own TLS and 307-redirects any
+# plain-HTTP request by default, which would break an Ingress pointed
+# at port 80 without it. Confirmed live before writing this).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  labels:
+    app: argocd-server
+  annotations:
+    cert-manager.io/cluster-issuer: adamastorx-ca
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: argocd.local.adamastorx.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - argocd.local.adamastorx.test
+      secretName: argocd-server-tls
