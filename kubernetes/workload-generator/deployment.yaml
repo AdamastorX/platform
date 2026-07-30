@@ -24,12 +24,17 @@ spec:
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
           # same convention as api/workers/clinvar-service) -- bump this
           # one line and open a PR to deploy a new build. First deploy of
-          # this component (backlog #45): the SHA below is the commit
-          # that adds services/workload-generator itself, published by
-          # services' build-publish.yml once that PR merges to main --
-          # this platform Application's initial sync will only succeed
-          # after that image exists in ghcr.io.
-          image: ghcr.io/adamastorx/workload-generator:890d7d6c069e1e2eff66e0207dd4c121e7c5a9ae
+          # this component (backlog #45): the SHA below is
+          # services#backlog-45-workload-generator's branch tip at the
+          # time this manifest was written, published by services'
+          # build-publish.yml once that PR merges to main -- this
+          # platform Application's initial sync only succeeds after that
+          # image exists in ghcr.io. If the services PR merges via squash
+          # (a new SHA, not this one) rather than merge/rebase, this line
+          # needs a one-line follow-up bump to the real merged SHA before
+          # ArgoCD can sync successfully -- called out explicitly so it
+          # isn't a silent post-merge surprise.
+          image: ghcr.io/adamastorx/workload-generator:20ca14bc3d58e13238b9a9d6c74f3ec6574f8c13
           env:
             # In-cluster Kubernetes Service DNS (same pattern
             # clinvar-service.base-url uses in services/api's
