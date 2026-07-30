@@ -34,7 +34,7 @@ spec:
           # needs a one-line follow-up bump to the real merged SHA before
           # ArgoCD can sync successfully -- called out explicitly so it
           # isn't a silent post-merge surprise.
-          image: ghcr.io/adamastorx/workload-generator:20ca14bc3d58e13238b9a9d6c74f3ec6574f8c13
+          image: ghcr.io/adamastorx/workload-generator:206478af0811ff7511843053c664bda5604cab3b
           env:
             # In-cluster Kubernetes Service DNS (same pattern
             # clinvar-service.base-url uses in services/api's
