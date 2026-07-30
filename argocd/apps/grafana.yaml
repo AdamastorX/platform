@@ -30,6 +30,19 @@ spec:
         fullnameOverride: grafana
         persistence:
           enabled: false
+        # existingSecret migration (platform#36, extended here): admin
+        # credential used to be left to the chart's own auto-generation
+        # (common.secrets.passwords.manage), which is non-idempotent
+        # under ArgoCD's `helm template`-only rendering -- confirmed live
+        # (the same root cause already fixed for postgresql/redis/
+        # clinvar-postgresql/kafka). existingSecret points at a Secret
+        # this chart can no longer create or regenerate; userKey/
+        # passwordKey stay at the chart's own defaults (admin-user/
+        # admin-password), the same key names the chart-generated Secret
+        # already used, so the live Secret needs no rename. Provisioning:
+        # bootstrap/README.md and bootstrap/create-stateful-secrets.sh.
+        admin:
+          existingSecret: grafana
         # Fixed local address (backlog: no more port-forward for
         # day-to-day access) -- same adamastorx-ca ClusterIssuer/Traefik
         # pattern api's own Ingress uses (ADR 0021). No public DNS yet
@@ -636,7 +649,12 @@ spec:
     namespace: grafana
   syncPolicy:
     automated:
-      prune: true
+      # prune off, same reason as postgresql/redis/clinvar-postgresql
+      # (platform#36): this chart no longer renders a "grafana" Secret
+      # at all, and that object already exists live on this cluster --
+      # prune: true would delete it out from under the running Grafana
+      # on the next sync, logging out every session and losing the
+      # admin credential.
       selfHeal: true
     syncOptions:
       - CreateNamespace=true

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# One-time, out-of-band creation of the 4 Secrets that postgresql / redis /
-# clinvar-postgresql / kafka now read via each chart's existingSecret-style
-# value (platform#36) instead of letting the chart generate one itself.
+# One-time, out-of-band creation of the 5 Secrets that postgresql / redis /
+# clinvar-postgresql / kafka / grafana now read via each chart's
+# existingSecret-style value (platform#36, extended to grafana after the
+# same non-idempotent-render risk was found live -- the grafana Secret's
+# own creationTimestamp was newer than the cluster's original bootstrap,
+# consistent with (not conclusive proof of, but consistent with) the same
+# drift class already confirmed for Postgres) instead of letting the chart
+# generate one itself.
 #
 # Why this exists (the tradeoff platform#36 decided):
 #
@@ -46,18 +51,19 @@
 #   ./create-stateful-secrets.sh
 #
 # Must run BEFORE root-app.yaml is applied / before ArgoCD's first sync
-# of the postgresql/redis/clinvar-postgresql/kafka Applications -- none
-# of those charts can generate these Secrets anymore, so the Secret has
-# to already exist by the time each Application's first sync creates the
-# Deployment/pod that reads it via secretKeyRef.
+# of the postgresql/redis/clinvar-postgresql/kafka/grafana Applications --
+# none of those charts can generate these Secrets anymore, so the Secret
+# has to already exist by the time each Application's first sync creates
+# the Deployment/pod that reads it via secretKeyRef.
 #
 # Idempotent and safe to re-run: skips any Secret that already exists
 # rather than overwriting it. That matters specifically for this
-# project's real, already-running cluster -- it already has all 4
-# Secrets, already matching what the live Postgres/Redis/Kafka
-# containers were actually started with (platform#34's fix confirmed
-# this). Regenerating any of them here would immediately break that
-# component. Re-running this script against that cluster is a no-op.
+# project's real, already-running cluster -- it already has all 5
+# Secrets, already matching what the live Postgres/Redis/Kafka/Grafana
+# containers were actually started with. Regenerating any of them here
+# would immediately break that component (log out every Grafana session,
+# or worse for the database credentials). Re-running this script against
+# that cluster is a no-op.
 set -euo pipefail
 
 create_ns() {
@@ -93,6 +99,7 @@ echo "==> Ensuring namespaces exist"
 create_ns api
 create_ns clinvar
 create_ns kafka
+create_ns grafana
 
 echo "==> postgresql (api namespace)"
 # Keys match the chart's auth.secretKeys defaults (adminPasswordKey,
@@ -120,4 +127,13 @@ create_secret kafka-kraft kafka \
   --from-literal=cluster-id="$(gen_kraft_id)" \
   --from-literal=controller-0-id="$(gen_kraft_id)"
 
-echo "==> Done. All 4 stateful Secrets present."
+echo "==> grafana (grafana namespace)"
+# Keys match the chart's admin.userKey/passwordKey defaults
+# (admin-user/admin-password) -- confirmed against the live Secret's
+# actual keys before choosing existingSecret, so this is a drop-in
+# replacement too, not a rename.
+create_secret grafana grafana \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$(gen_password)"
+
+echo "==> Done. All 5 stateful Secrets present."
