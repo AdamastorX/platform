@@ -1,0 +1,32 @@
+# backlog#23a: daily pg_dump CronJob + its own separate backup PVC for
+# api's `postgresql` (work_items) -- see
+# kubernetes/postgresql-backup/cronjob.yaml for the mechanism and why
+# it's a plain CronJob rather than the Bitnami chart's own backup
+# support, and docs/runbooks/backup-restore.md for the decision this
+# implements, the restore proof, and the measured RTO.
+#
+# Same destination namespace as postgresql.yaml (api) -- the CronJob
+# only needs to reach that Service and its existingSecret, both already
+# in-namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgresql-backup
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/postgresql-backup
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: api
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

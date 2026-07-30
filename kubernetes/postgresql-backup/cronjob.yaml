@@ -1,0 +1,102 @@
+# backlog#23a: daily pg_dump of api's `postgresql` (work_items), a
+# plain CronJob rather than the Bitnami postgresql chart's own
+# `backup.enabled` cronjob support. That built-in support exists (chart
+# 16.2.1, `helm show values bitnami/postgresql` -- verified, not
+# assumed) and was the first option tried, but it hardcodes `pg_dumpall`
+# authenticating as the `postgres` superuser via the existingSecret's
+# `postgres-password` key. Confirmed live against this exact instance
+# (2026-07-30): that superuser credential does not authenticate --
+# `psql -U postgres` fails with "password authentication failed", the
+# same Secret-drift class of bug platform#34/#36 already found and
+# partially fixed (SESSION_STATE.md) -- while the `api` app user's own
+# credential (the `password` key, what api's Deployment already uses
+# every request) authenticates fine. Rather than depend on fixing a
+# live-instance credential this task must not touch, this CronJob dumps
+# with `pg_dump` (not `pg_dumpall`) as the existing, already-verified,
+# least-privilege `api` user -- it only needs to dump the one database
+# it owns anyway, so pg_dumpall's whole-cluster/roles scope was never
+# needed. Same postgres image already pinned for this instance
+# (bitnamilegacy/postgresql:17.1.0-debian-12-r0), so pg_dump's version
+# always matches the server exactly.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgresql-backup
+  labels:
+    app: postgresql-backup
+spec:
+  # Daily at 03:00, clear of the clinvar-postgresql-backup CronJob's
+  # 03:15 (kubernetes/clinvar-postgresql-backup/cronjob.yaml) so the two
+  # dumps don't contend for the single node's disk I/O at once.
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: postgresql-backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            fsGroup: 1001
+          containers:
+            - name: pg-dump
+              image: docker.io/bitnamilegacy/postgresql:17.1.0-debian-12-r0
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  stamp="$(date +%Y-%m-%dT%H-%M-%S)"
+                  file="${PGDUMP_DIR}/${PGDATABASE}-${stamp}.dump"
+                  echo "Dumping ${PGDATABASE}@${PGHOST} -> ${file}"
+                  pg_dump --format=custom --no-password --file="${file}"
+                  echo "Pruning dumps older than ${RETENTION_DAYS} days"
+                  find "${PGDUMP_DIR}" -maxdepth 1 -name '*.dump' -mtime "+${RETENTION_DAYS}" -print -delete
+                  echo "Backup complete:"
+                  ls -lh "${file}"
+              env:
+                - name: PGHOST
+                  value: postgresql
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: api
+                - name: PGDATABASE
+                  value: api
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgresql
+                      key: password
+                - name: PGDUMP_DIR
+                  value: /backup/pgdump
+                - name: RETENTION_DAYS
+                  value: "14"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup/pgdump
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: postgresql-backup

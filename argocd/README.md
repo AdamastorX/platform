@@ -30,6 +30,8 @@ means removed from the cluster; manual drift gets reverted.
 | [`cert-manager`](apps/cert-manager.yaml) | Helm chart `cert-manager` v1.21.0 | Certificate issuance/renewal operator |
 | [`cert-manager-issuers`](apps/cert-manager-issuers.yaml) | `../kubernetes/cert-manager-issuers/` | Project CA: self-signed bootstrap CA + `adamastorx-ca` ClusterIssuer |
 | [`kafka`](apps/kafka.yaml) | Helm chart `kafka` 32.4.3 | Single-broker KRaft messaging (ADR 0011); broker + `work-items` topic only, `workers` consumer deploys separately |
+| [`postgresql-backup`](apps/postgresql-backup.yaml) | `../kubernetes/postgresql-backup/` | Daily `pg_dump` CronJob + separate PVC for api's `postgresql` (backlog #23a, `../docs/runbooks/backup-restore.md`) |
+| [`clinvar-postgresql-backup`](apps/clinvar-postgresql-backup.yaml) | `../kubernetes/clinvar-postgresql-backup/` | Daily `pg_dump` CronJob + separate PVC for `clinvar-postgresql` (backlog #23a, `../docs/runbooks/backup-restore.md`) |
 
 ## How to add a new app
 

@@ -1,0 +1,28 @@
+# backlog#23a: daily pg_dump CronJob + its own separate backup PVC for
+# clinvar-service's `clinvar-postgresql` (clinvar_release/
+# clinvar_variant_index) -- see
+# kubernetes/clinvar-postgresql-backup/cronjob.yaml for the mechanism
+# and docs/runbooks/backup-restore.md for the decision, restore proof,
+# and measured RTO.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clinvar-postgresql-backup
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/clinvar-postgresql-backup
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clinvar
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

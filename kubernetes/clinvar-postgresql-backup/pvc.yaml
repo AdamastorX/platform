@@ -1,0 +1,21 @@
+# backlog#23a: second, separate local-path PVC for clinvar-postgresql's
+# pg_dump output -- see kubernetes/postgresql-backup/pvc.yaml for why it
+# must not be the DB's own PVC.
+#
+# 2Gi: a real pg_dump -Fc of `clinvar` today is ~33M (measured live
+# 2026-07-30, 2,895,514-row clinvar_variant_index -- see the runbook),
+# custom format's default compression doing most of the work vs. the
+# live DB's 792MB on-disk size. 14 days' retention at that size is
+# ~460MB; 2Gi covers several future full-VCF ingestions' worth of growth
+# before this needs revisiting.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clinvar-postgresql-backup
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
