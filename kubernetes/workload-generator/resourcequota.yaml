@@ -1,0 +1,20 @@
+# Bounds total consumption of the `workload-generator` namespace (a
+# single Deployment, no other workloads here) -- same reasoning
+# workers/resourcequota.yaml documents for its own namespace.
+#
+# Sized 2x deployment.yaml's single container (requests cpu=25m
+# mem=64Mi, limits cpu=100m mem=128Mi) to clear a rolling update's
+# default maxSurge=1 peak (two pods briefly), not just steady-state one
+# pod -- the #35 lesson this item's own AC calls out was specifically
+# about a resource ceiling that only accounted for steady state, applied
+# here to the quota level too, not just the container's own limits.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 50m
+    requests.memory: 128Mi
+    limits.cpu: 200m
+    limits.memory: 256Mi

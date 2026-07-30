@@ -1,0 +1,15 @@
+# Backstop for anything added to this namespace later, not a fix for a
+# live gap -- deployment.yaml's one container already sets an explicit
+# CPU/memory request and limit. Default matches that container's own
+# values (same pattern workers/limitrange.yaml and api's namespace use).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-cpu-limit
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 100m
+      defaultRequest:
+        cpu: 25m

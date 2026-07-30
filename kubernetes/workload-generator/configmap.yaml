@@ -1,0 +1,29 @@
+# services/workload-generator/generator/config.py reads this file once per
+# loop tick (not once at process startup) -- editing this ConfigMap and
+# letting ArgoCD sync it changes the running generator's rate/shape with
+# no pod restart, which is what makes backlog #45's "Rate is a single
+# configurable value that can be turned down to near-zero without a
+# redeploy" literally true rather than aspirational. To pause real
+# traffic quickly, lower target_rps here (e.g. to 0.001) and let ArgoCD
+# sync -- no image bump, no Deployment edit, no rollout.
+#
+# Defaults below are deliberately "low-key" (this item's own word):
+# target_rps=0.5 peaks at one request every two seconds; the diurnal
+# trough (min_rps_fraction=0.2 of that) is one request every ten
+# seconds -- non-zero and shaped, never a load test.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workload-generator-config
+data:
+  config.json: |
+    {
+      "target_rps": 0.5,
+      "min_rps_fraction": 0.2,
+      "cycle_seconds": 86400,
+      "error_fraction": 0.05,
+      "hot_key_weight": 0.75,
+      "work_item_write_weight": 0.4,
+      "work_item_read_weight": 0.25,
+      "variant_lookup_weight": 0.35
+    }
