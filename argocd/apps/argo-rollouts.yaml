@@ -1,0 +1,75 @@
+# Argo Rollouts: progressive-delivery controller for backlog #46. Helm
+# chart source with values inline, same pattern as every other platform
+# component (ADR 0003). Own `argo-rollouts` namespace — a cluster-wide
+# controller with its own CRDs, not tied to any one workload's namespace,
+# same reasoning as Prometheus/cert-manager living outside `api`.
+#
+# Version 2.41.1 (app version v1.9.1) picked as the current chart-repo
+# head at the time this was written (`helm search repo argo/argo-rollouts
+# --versions`) — no reason to pin behind head for a brand-new install.
+# Values verified against the real chart before writing this file
+# (`helm show values argo/argo-rollouts --version 2.41.1`), not assumed
+# from memory or docs — this project's established discipline (see
+# prometheus.yaml/traefik.yaml's own comments for the same pattern).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.41.1
+    helm:
+      valuesObject:
+        # Chart default is 2 (leader-election HA) — this is a single-node
+        # cluster (ADR 0003's own non-HA reasoning for ArgoCD itself
+        # applies identically here: HA would be gold plating, there is
+        # only one node to schedule a second replica onto anyway).
+        controller:
+          replicas: 1
+          # Chart default is `{}` (unbounded) — every container in this
+          # project sets an explicit CPU limit since the real #35
+          # CrashLoopBackOff incident (kubernetes/api/deployment.yaml's
+          # own comment). The controller is a single lightweight Go
+          # binary watching Rollout/AnalysisRun objects, not a
+          # request-serving workload — sized small deliberately, revisit
+          # only if it's ever observed throttled.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+        # Dashboard server stays disabled (chart default `false`) --
+        # this project's own "don't build ahead of need" caution (ADR
+        # 0014 applied it to Prometheus Operator, same reasoning here):
+        # `kubectl argo rollouts` CLI (get/promote/abort, see
+        # docs/runbooks/canary.md) is the only interface backlog #46
+        # actually needs. Revisit if a web view of rollout state becomes
+        # a real, felt gap rather than a nice-to-have.
+        dashboard:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Same lesson as cert-manager.yaml / ArgoCD's own install (ADR
+      # 0003, PR #8): this chart's CRDs (AnalysisTemplate,
+      # ClusterAnalysisTemplate, AnalysisRun, Experiment, Rollout) each
+      # render at 170-230KB of raw YAML -- confirmed via `helm show crds
+      # argo/argo-rollouts --version 2.41.1` before writing this, not
+      # assumed by analogy alone -- comfortably enough to blow past
+      # client-side apply's 256KB last-applied-configuration annotation
+      # limit once the object is round-tripped to JSON.
+      - ServerSideApply=true

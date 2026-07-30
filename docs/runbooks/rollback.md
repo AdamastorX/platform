@@ -5,6 +5,32 @@ those — one per alert defined in backlog #21) — this is a plain
 operational procedure, proven once for real rather than left as an
 assumed-to-work idea.
 
+## Which path applies (backlog #46 update)
+
+**`api` specifically** now goes through Argo Rollouts, not the plain
+procedure below. Two real, distinct situations:
+
+- **A canary that's still in progress or just aborted** (a bad image
+  bump that hasn't been reverted in git yet): use
+  `docs/runbooks/canary.md`'s `kubectl argo rollouts abort`/`promote`
+  commands. This is faster (no PR needed to stop bad traffic — the
+  canary's own `setWeight`/analysis gate already keeps the bad version
+  at partial or zero traffic) and is what backlog #46 was built for:
+  automated detection turns the #35 CrashLoopBackOff shape into an
+  automatic abort before a human even needs to run either command.
+- **A bad version that already fully promoted** (the canary passed
+  analysis but the regression only showed up later, or reverting a
+  design/behavior decision entirely): the procedure below still
+  applies unchanged — edit `kubernetes/api/rollout.yaml`'s image tag
+  back to the previous known-good SHA, PR, merge, `refresh=hard`. Argo
+  Rollouts runs that reverting bump through the same canary + analysis
+  gate as any other deploy, so it gets the same automated safety a
+  forward deploy does, not a bypass of it.
+
+Every other service here (`workers`, `clinvar-service`) is still a
+plain `Deployment` — the procedure below applies to them unchanged, no
+`kubectl argo rollouts` commands involved.
+
 ## Procedure
 
 Every deploy here is a one-line image-tag bump in

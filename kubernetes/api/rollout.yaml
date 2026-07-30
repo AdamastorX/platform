@@ -1,0 +1,179 @@
+# backlog #46: api migrated from Deployment to a Rollout with a canary
+# strategy + automated analysis gate. Everything below that isn't new
+# (image, env, probes, resources) is carried over unchanged from the old
+# deployment.yaml -- this is a kind change plus a strategy, not a
+# redesign of the pod spec.
+#
+# Why api and not clinvar-service too (the AC's "optionally"): api is
+# the one service with a real, already-dated incident this closes
+# (the #35 95-minute CrashLoopBackOff) and the one with continuous real
+# traffic today (#45's workload-generator hits api directly, not
+# clinvar-service). clinvar-service is reached only indirectly (via
+# api's own GET /variants/lookup) and has no direct continuous caller of
+# its own -- a canary there would have nothing but api's occasional
+# proxied calls to analyze, a much weaker live proof. Left as a
+# Deployment; a real follow-up once clinvar-service has its own direct
+# traffic source.
+#
+# Canary shape: replicas stay at 1 (matches the existing steady-state
+# sizing in resourcequota.yaml/limitrange.yaml -- this migration
+# shouldn't silently double baseline capacity). maxSurge: 1,
+# maxUnavailable: 0 means the canary pod is a genuine extra pod
+# alongside the still-serving stable one, not a replacement of it --
+# with only 1 total replica, that's the only way a %-based canary step
+# means anything: setWeight: 50 becomes a real 1-stable/1-canary pod
+# split, both selected by the *same* Service (api/service.yaml's
+# `app: api` selector, unchanged), so traffic actually round-robins
+# across both during the canary window. No dedicated stable/canary
+# Service or trafficRouting plugin (Traefik weighted routing) --
+# deliberately the simplest thing that works for a single-node cluster
+# with one Ingress controller, matching this project's own "don't build
+# ahead of need" discipline (ADR 0014's reasoning applied here).
+#
+# Known, stated limitation: because Prometheus scrapes api via its
+# Service DNS (argocd/apps/prometheus.yaml's static `api` job target,
+# ADR 0014), not per-pod, the AnalysisTemplate below (analysistemplate.yaml)
+# measures the *whole Service's* aggregate SLIs during the canary window,
+# not the canary pod in isolation -- it cannot distinguish "the new pod
+# is bad" from "the old pod got worse" by itself. What it protects
+# against directly is the actual #35 incident shape either way: a
+# canary pod that never becomes Ready never receives any Service
+# traffic (kube-proxy only routes to Ready endpoints) and so never
+# contributes a single request to the analysis's own numbers -- that
+# specific failure is instead caught by progressDeadlineSeconds +
+# progressDeadlineAbort below, a second, complementary safety net, not
+# a gap. Splitting Prometheus scraping to per-pod (so the analysis could
+# isolate canary-only traffic) is real, valuable follow-on work, out of
+# scope here to keep the AC's "reuse the exact existing expressions"
+# instruction literal rather than inventing a new scrape/label shape
+# alongside it.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: api
+  # 180s: 2x the existing readiness budget (deployment's own probe:
+  # initialDelaySeconds 20 + failureThreshold 6 * periodSeconds 10 = 80s
+  # worst-case for a legitimately slow-but-fine JVM cold start, per this
+  # file's own probe section below and the #35 incident comment on the
+  # old cpu limit). 180s gives that real cold-start budget comfortable
+  # headroom while still being short enough that a genuinely stuck pod
+  # (CrashLoopBackOff, the #35 shape) is caught in minutes, not the 95
+  # minutes the original incident ran silently. progressDeadlineAbort
+  # is what turns "stuck" into an *automatic* abort instead of just a
+  # Degraded status a human has to notice -- verified live, see
+  # docs/runbooks/canary.md.
+  progressDeadlineSeconds: 180
+  progressDeadlineAbort: true
+  strategy:
+    canary:
+      maxSurge: 1
+      maxUnavailable: 0
+      # scaleDownDelaySeconds default (30s) is fine here -- single
+      # replica, nothing else depends on the old ReplicaSet staying up
+      # any longer than that once the new one is confirmed.
+      steps:
+        - setWeight: 50
+        # Give the analysis a moment of real traffic at the new weight
+        # before the first measurement -- otherwise the first Prometheus
+        # query could land before any request has actually hit the
+        # canary-weighted split.
+        - pause:
+            duration: 30s
+        - analysis:
+            templates:
+              - templateName: api-slo-check
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+        - name: api
+          # Image tag is the services repo's commit SHA (ADR 0008/0009) —
+          # bump this one line and open a PR to deploy a new build. Every
+          # such bump now goes through the canary strategy above instead
+          # of a plain rolling update.
+          image: ghcr.io/adamastorx/api:206478af0811ff7511843053c664bda5604cab3b
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.kafka.svc.cluster.local:9092
+            - name: OTLP_COLLECTOR_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgresql.api.svc.cluster.local:5432/api
+            # Username isn't a secret (just a Postgres role name) --
+            # only the password lives in the chart-generated Secret
+            # (services#4, ADR 0012).
+            - name: SPRING_DATASOURCE_USERNAME
+              value: api
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql
+                  key: password
+            # services#5, ADR 0016 -- REDIS_HOST default in
+            # application.yml already matches this chart's standalone
+            # master Service name (redis-master.api.svc.cluster.local),
+            # so only the password needs an explicit env var.
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            # services#24, ADR 0019 -- api no longer touches ClinVar data
+            # directly (no PVC, no direct Postgres access); it calls the
+            # standalone clinvar-service over HTTP instead, the same
+            # service-to-service HTTP pattern ADR 0010 established
+            # (originally gateway calling api; gateway itself was removed
+            # by ADR 0021/backlog #S1). Default in application.yml already
+            # matches this Service DNS, so this override is mostly
+            # documentation of the real value in use.
+            - name: CLINVAR_SERVICE_URL
+              value: http://clinvar-service.clinvar.svc.cluster.local
+          # Spring Boot Actuator health groups (application.yml enables
+          # management.endpoint.health.probes) — JVM cold start is slower
+          # than a trivial static-binary proof app's, hence the longer
+          # initialDelaySeconds.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            # platform#35: explicit CPU limit added alongside the existing
+            # memory limit -- previously unbounded, so a runaway CPU-bound
+            # request handler had no ceiling on a single-node cluster where
+            # that directly steals capacity from every other namespace.
+            # 2x the request; resourcequota.yaml/limitrange.yaml in this
+            # same directory are sized against this value. Canary's
+            # maxSurge: 1 briefly adds a second full pod at this same
+            # size (already accounted for in resourcequota.yaml's own
+            # "rolling update temporarily runs two api pods" headroom
+            # comment -- a canary surge pod is the same shape of peak).
+            limits:
+              cpu: "1"
+              memory: 512Mi
