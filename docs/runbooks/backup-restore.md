@@ -57,15 +57,34 @@ for a concrete, verified reason:
 `postgres-password` key) **and runs `pg_dumpall`.** Checking that
 credential live against both instances (2026-07-30, read-only —
 `psql -U postgres`) found it does **not** authenticate against api's
-`postgresql`: `password authentication failed for user "postgres"`. This
-is the same Secret-drift class of bug platform#34/#36 already
-found and partly fixed (root cause: `common.secrets.passwords.manage`'s
-reuse-idempotency needs a live-cluster Helm `lookup()` that ArgoCD's
-`helm template` rendering never performs — see `SESSION_STATE.md`) — it
-has evidently recurred or was never re-synced for this instance's
-`postgres` role specifically. (`clinvar-postgresql`'s `postgres` user
-*does* still authenticate correctly — the two instances are in different
-states of the same underlying drift.)
+`postgresql`: `password authentication failed for user "postgres"`.
+
+**Correction, found investigating this further (2026-07-30)**: this is
+*not* a recurrence of platform#34/#36's Secret-drift class of bug. That
+bug's signature is the Secret's value disagreeing with the live
+container's own env var — checked directly here and they **agree**
+(`kubectl get secret postgresql -n api -o jsonpath='{.data.postgres-password}'`
+matches the pod's own `POSTGRES_POSTGRES_PASSWORD` exactly). The real
+finding is different and, on a home-lab cluster with one operator, more
+concerning in a quieter way: **the `postgres` role's actual password hash
+stored inside PostgreSQL doesn't match either of those — a third, unknown
+value** — most likely because `POSTGRES_POSTGRES_PASSWORD` is a
+first-init-only setting (Bitnami's entrypoint only applies it while
+`PGDATA` is being initialized, never on a later restart against existing
+data), so whatever the Secret held *at that one moment* is what's live,
+and it may never have matched what the Secret holds today, at any point.
+Nothing has ever needed to authenticate as `postgres` in normal operation
+(every real request goes through the least-privilege `api`/`clinvar` app
+roles), so this has been silently true for an unknown amount of time
+with no symptom, only surfacing now that this work tried to use the
+superuser role for the first time. Tracked as backlog #73 rather than
+fixed here — see that item for why (an `api`-role connection has no
+privilege to `ALTER USER postgres`, so fixing this needs a real
+`pg_hba.conf` trust-mode maintenance window, a bigger live-database
+action than this backup work's own read-only scope covers).
+(`clinvar-postgresql`'s `postgres` user does still authenticate
+correctly today — only api's instance has this specific, currently
+unexplained, latent gap.)
 
 Fixing that credential is out of scope here and was **not** done as part
 of this work — this item's own instructions are to only read from the
