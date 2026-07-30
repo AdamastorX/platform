@@ -1,0 +1,93 @@
+# backlog#23a: daily pg_dump of clinvar-service's `clinvar-postgresql`
+# (clinvar_release/clinvar_variant_index). Same mechanism and reasoning
+# as kubernetes/postgresql-backup/cronjob.yaml -- see that file's header
+# for why this is a plain CronJob using pg_dump as the app-owning user
+# rather than the Bitnami chart's own pg_dumpall-as-superuser backup
+# support. This instance's `postgres` superuser credential was confirmed
+# live to authenticate correctly (unlike api's postgresql), but the
+# `clinvar` app user is used here too regardless, for the same
+# least-privilege, single-database-scope reasoning, and so both
+# instances' backup mechanism is identical rather than one depending on
+# a credential the other doesn't have.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clinvar-postgresql-backup
+  labels:
+    app: clinvar-postgresql-backup
+spec:
+  # 03:15 -- 15 minutes after postgresql-backup's 03:00 (see that
+  # CronJob's schedule comment), clear of it on the single node's disk
+  # I/O.
+  schedule: "15 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: clinvar-postgresql-backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            fsGroup: 1001
+          containers:
+            - name: pg-dump
+              image: docker.io/bitnamilegacy/postgresql:17.1.0-debian-12-r0
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  stamp="$(date +%Y-%m-%dT%H-%M-%S)"
+                  file="${PGDUMP_DIR}/${PGDATABASE}-${stamp}.dump"
+                  echo "Dumping ${PGDATABASE}@${PGHOST} -> ${file}"
+                  pg_dump --format=custom --no-password --file="${file}"
+                  echo "Pruning dumps older than ${RETENTION_DAYS} days"
+                  find "${PGDUMP_DIR}" -maxdepth 1 -name '*.dump' -mtime "+${RETENTION_DAYS}" -print -delete
+                  echo "Backup complete:"
+                  ls -lh "${file}"
+              env:
+                - name: PGHOST
+                  value: clinvar-postgresql
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: clinvar
+                - name: PGDATABASE
+                  value: clinvar
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: clinvar-postgresql
+                      key: password
+                - name: PGDUMP_DIR
+                  value: /backup/pgdump
+                - name: RETENTION_DAYS
+                  value: "14"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup/pgdump
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: clinvar-postgresql-backup

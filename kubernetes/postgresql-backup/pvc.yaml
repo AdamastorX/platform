@@ -1,0 +1,22 @@
+# backlog#23a: a second, separate local-path PVC for pg_dump output --
+# deliberately not the same PVC `postgresql`'s own data-postgresql-0
+# volume uses (ADR 0012), so a backup living on the same disk as the
+# thing it backs up doesn't pretend to protect against a disk failure.
+# Still node-pinned like every local-path PVC here (see
+# docs/runbooks/backup-restore.md for what that does and doesn't cover).
+#
+# 1Gi: real dumps of `work_items` today are ~4.4K (pg_dump -Fc, measured
+# live 2026-07-30, see the runbook) -- effectively all headroom, sized
+# for years of growth at this table's current shape rather than tuned
+# tight.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql-backup
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
