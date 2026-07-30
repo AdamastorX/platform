@@ -1,0 +1,89 @@
+# backlog #46: the automated SLO gate rollout.yaml's canary steps
+# reference by name (`api-slo-check`). Queries the same live Prometheus
+# every other alert/dashboard in this project already reads
+# (prometheus-server.prometheus.svc.cluster.local, ADR 0014), against
+# api's own two SLIs from ADR 0020's table.
+#
+# non-5xx-rate's query is copied verbatim (not re-derived) from
+# argocd/apps/prometheus.yaml's ApiHighErrorRate rule -- same job/
+# outcome/uri filters, same ratio shape, same 0.05 threshold, per the
+# AC's explicit "the exact expressions ... not new ones invented for
+# this". Only the alert-rule-specific "and sum(...) > 0" zero-traffic
+# guard is dropped: that guard exists so a single scrape's 0/0 can't
+# swing an *alert* to firing, but this canary now depends on #45's
+# workload-generator for continuous non-zero traffic anyway (this
+# item's own stated dependency), so the guard has nothing to protect
+# against here and an AnalysisTemplate has no "and" boolean-alert
+# syntax to hang it on regardless -- the ratio itself is unchanged.
+#
+# p95-latency has no equivalent to copy: alerting_rules.yml has no
+# latency alert at all (grep confirmed before writing this -- ADR 0020
+# explicitly deferred exact latency thresholds "once the histogram/lag
+# metrics are live", and no follow-up rule was ever written). The one
+# place a real p95 expression already exists in this project is api's
+# own Grafana dashboard (argocd/apps/grafana.yaml), so *that* query is
+# reused instead -- histogram_quantile(0.95, ...) over the same
+# http_server_requests_seconds_bucket series, with the dashboard's
+# `$__rate_interval` template variable replaced by a literal 5m (the
+# same window ApiHighErrorRate already uses, for consistency, not a
+# new number). The 1000ms threshold below is genuinely new -- stated
+# openly, not disguised as reused, because nothing to reuse exists yet:
+# picked as a generous ceiling for a Spring Boot CRUD path over
+# Postgres/Redis on this single-node dev cluster, the same "not tuned
+# against a real historical distribution yet" caveat ADR 0020 already
+# used for its own thresholds. Revisit once a real p95 distribution
+# exists to tune against.
+#
+# interval: 30s on both metrics -- Prometheus's own scrape_interval for
+# the `api` job is 60s (confirmed live against the running
+# prometheus-server ConfigMap, not assumed), so consecutive
+# measurements inside one 30s interval can repeat the same underlying
+# scrape between real refreshes; 30s (half the scrape interval) keeps
+# the analysis's own count*interval window short enough to prove live
+# in a reasonable demo while still guaranteeing at least one genuinely
+# fresh scrape across a 4-measurement run.
+#
+# `or vector(0)` on the numerator, found necessary live (backlog #46's
+# first real canary run against this project's actual low-traffic dev
+# cluster): Micrometer only emits an `outcome="SERVER_ERROR"` series at
+# all once api has returned at least one real 5xx -- on a healthy
+# service that series doesn't exist yet, so
+# `sum(rate(...{outcome="SERVER_ERROR"...}))` returns an *empty*
+# vector, not `0`. Alertmanager silently never fires a rule whose
+# expression evaluates empty, so alerting_rules.yml's ApiHighErrorRate
+# never needed a guard for this -- but AnalysisRun expects a concrete
+# `result[0]` and errored hard ("reflect: slice index out of range")
+# the first time this ran for real against a service with zero errors
+# recorded. `or vector(0)` is the standard Prometheus idiom for exactly
+# this "the count series doesn't exist yet" gap; it changes nothing
+# about the ratio's meaning (zero errors still divides out to 0.0), it
+# only makes "no errors ever" a valid numeric answer instead of a query
+# error.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: api-slo-check
+spec:
+  metrics:
+    - name: non-5xx-rate
+      interval: 30s
+      count: 4
+      failureLimit: 0
+      successCondition: result[0] <= 0.05
+      provider:
+        prometheus:
+          address: http://prometheus-server.prometheus.svc.cluster.local
+          query: |
+            (sum(rate(http_server_requests_seconds_count{job="api", outcome="SERVER_ERROR", uri!~"/actuator.*"}[5m])) or vector(0))
+            /
+            sum(rate(http_server_requests_seconds_count{job="api", uri!~"/actuator.*"}[5m]))
+    - name: p95-latency-seconds
+      interval: 30s
+      count: 4
+      failureLimit: 0
+      successCondition: result[0] <= 1.0
+      provider:
+        prometheus:
+          address: http://prometheus-server.prometheus.svc.cluster.local
+          query: |
+            histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job="api", uri!~"/actuator.*"}[5m])) by (le))
