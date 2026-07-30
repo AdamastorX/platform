@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workload-generator
+  labels:
+    app: workload-generator
+spec:
+  # 1 replica: this is one continuous stream of shaped traffic at a
+  # single configured rate, not something that benefits from scaling --
+  # two replicas would just double the rate behind ConfigMap-set numbers
+  # that already say what the rate should be, silently drifting the
+  # actual load away from what the ConfigMap documents.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workload-generator
+  template:
+    metadata:
+      labels:
+        app: workload-generator
+    spec:
+      containers:
+        - name: workload-generator
+          # Image tag is the services repo's commit SHA (ADR 0008/0009,
+          # same convention as api/workers/clinvar-service) -- bump this
+          # one line and open a PR to deploy a new build. First deploy of
+          # this component (backlog #45): the SHA below is
+          # services#backlog-45-workload-generator's branch tip at the
+          # time this manifest was written, published by services'
+          # build-publish.yml once that PR merges to main -- this
+          # platform Application's initial sync only succeeds after that
+          # image exists in ghcr.io. If the services PR merges via squash
+          # (a new SHA, not this one) rather than merge/rebase, this line
+          # needs a one-line follow-up bump to the real merged SHA before
+          # ArgoCD can sync successfully -- called out explicitly so it
+          # isn't a silent post-merge surprise.
+          image: ghcr.io/adamastorx/workload-generator:20ca14bc3d58e13238b9a9d6c74f3ec6574f8c13
+          env:
+            # In-cluster Kubernetes Service DNS (same pattern
+            # clinvar-service.base-url uses in services/api's
+            # application.yml) -- this is an internal, always-on
+            # workload, not a client of the public Ingress hostname.
+            - name: API_BASE_URL
+              value: http://api.api.svc.cluster.local
+            - name: CONFIG_PATH
+              value: /etc/workload-generator/config.json
+            - name: HEARTBEAT_PATH
+              value: /tmp/workload-generator-heartbeat
+          # No ports -- this component makes only outbound calls (backend-
+          # engineer.md/platform-engineer.md's "simplest thing that works"
+          # AC allowance: a container running a script). Health is a
+          # heartbeat-file exec probe (generator/healthcheck.py), not
+          # httpGet, for the same reason.
+          livenessProbe:
+            exec:
+              # "python", not "python3" -- matches the Dockerfile's own
+              # ENTRYPOINT exactly (the official python:3.12-slim image
+              # symlinks python -> python3, but there's no reason to rely
+              # on both names resolving when one is already proven to
+              # work by the container actually starting at all).
+              command: ["python", "-m", "generator.healthcheck"]
+            # Generous initialDelaySeconds even though this process's own
+            # startup is near-instant (no JVM cold start, no
+            # Hibernate/Flyway/Kafka bootstrapping the way api's #35
+            # incident hit) -- kept anyway as a deliberate margin, not
+            # tuned down to the observed ~1s startup, since a heartbeat
+            # probe firing before the first loop tick has ever run would
+            # be a false negative for a reason that has nothing to do
+            # with this container's health.
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            # Sized from a real local run against the live cluster's api
+            # Service (port-forwarded), not guessed -- applying the #35
+            # lesson to a component #35 itself never touched. Measured via
+            # `ps`/`/proc/<pid>/status` over several minutes at a
+            # deliberately faster-than-production rate (2 req/s, vs this
+            # ConfigMap default's 0.5 req/s peak, to get a faster/harder
+            # signal): steady-state RSS ~32MB (stable, no growth observed),
+            # CPU ~0.5-0.6% of one core. No JVM-style cold-start burst
+            # here at all -- a plain CPython interpreter with `requests`
+            # imported starts in a small fraction of a second, nothing
+            # like api's Hibernate/Flyway/Kafka-bootstrap startup path.
+            # Limits below are roughly 4x the measured steady-state
+            # memory and a full order of magnitude over measured CPU, for
+            # headroom against a slower production host and Python's own
+            # GC/allocator variance, while staying nowhere near "unbounded"
+            # on a namespace whose whole point is to be a low-key,
+            # low-priority consumer of node capacity.
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            # ConfigMap volume, not envFrom/a plain env var -- kubelet
+            # keeps a mounted ConfigMap's files in sync with the object in
+            # the API server (periodic sync, ~60s default) without a pod
+            # restart, which env vars fundamentally can't do. This is
+            # what makes generator/config.py's per-tick re-read (see that
+            # module's docstring) actually observe a ConfigMap edit live,
+            # satisfying backlog #45's "Rate is a single configurable
+            # value that can be turned down to near-zero without a
+            # redeploy".
+            - name: config
+              mountPath: /etc/workload-generator
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: workload-generator-config

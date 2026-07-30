@@ -1,0 +1,35 @@
+# workload-generator (backlog #45): a permanent, always-running, low-key
+# traffic generator so every SLO/alert rule/dashboard/chaos fact pack in
+# this project has something real and continuous to measure, instead of
+# only the handful of minutes of by-hand curl traffic chaos scenarios 1
+# and 2 both needed before an alert fired. Explicitly not a resurrection
+# of backlog #34's one-off load test (see services/workload-generator/
+# README.md and this item's own text in docs/roadmap/backlog.md for why).
+#
+# Own namespace, own ArgoCD Application -- same pattern every other
+# platform component here uses (ADR 0003), deliberately not folded into
+# `api`'s namespace: this is a distinct workload with its own lifecycle,
+# resource budget, and blast radius from the service it drives traffic
+# against.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workload-generator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/workload-generator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: workload-generator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
