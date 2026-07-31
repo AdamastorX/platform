@@ -73,21 +73,12 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: api
+  # TEMPORARY, backlog #47 re-run of chaos scenario 2: `automated`
+  # removed so a real `kubectl scale --replicas=0` outage window isn't
+  # reverted by selfHeal in ~16s (platform#53's original precedent for
+  # this exact same need). Restored via a second PR before this branch
+  # merges -- see that PR's description.
   syncPolicy:
-    automated:
-      # prune left off deliberately, platform#36: existingSecret above
-      # means this chart no longer renders a "postgresql" Secret object
-      # at all. On this already-bootstrapped cluster that object still
-      # exists live (pre-existing, now out-of-band-managed per
-      # bootstrap/README.md) -- with prune: true, the very next sync
-      # would see a live resource this Application previously created
-      # but no longer renders, and delete it out from under the running
-      # Postgres container. That's exactly the kind of live-Secret
-      # deletion this migration must not cause, so prune stays off for
-      # this Application. selfHeal is unaffected (it only reverts drift
-      # on resources still in the rendered set) and still protects
-      # everything else this Application manages.
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
   # platform#34/#36: this Application used to need ignoreDifferences on
