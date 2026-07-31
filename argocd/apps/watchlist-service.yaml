@@ -1,0 +1,31 @@
+# watchlist-service (backlog #53): subscription CRUD and guaranteed,
+# idempotent fan-out on clinvar.ingestion.completed -- the second,
+# independent consumer of that topic (the first is api's Redis
+# cache-invalidation listener, ADR 0019).
+#
+# Own namespace, own dedicated Postgres instance (watchlist-postgresql.yaml)
+# -- same single-consumer-per-instance reasoning ADR 0012/0019 already
+# established, applied fresh rather than sharing across a namespace
+# boundary again.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: watchlist-service
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/watchlist-service
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: watchlist
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

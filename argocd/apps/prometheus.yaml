@@ -152,6 +152,14 @@ spec:
             metrics_path: /metrics
             static_configs:
               - targets: ['clinvar-service.clinvar.svc.cluster.local:80']
+          # watchlist-service (backlog #53): a sixth static target, same
+          # stable-Service-DNS reasoning as api/clinvar-service above
+          # (watchlist-service.watchlist.svc.cluster.local, its own
+          # namespace per platform/argocd/apps/watchlist-service.yaml).
+          - job_name: watchlist-service
+            metrics_path: /actuator/prometheus
+            static_configs:
+              - targets: ['watchlist-service.watchlist.svc.cluster.local:80']
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
@@ -219,6 +227,11 @@ spec:
         #     the exact shape the double-ingestion incident had before
         #     it became observable; check for a concurrent/overlapping
         #     run or an unusually large source VCF.
+        #   WatchlistDlqDepthHigh (backlog #53): a subscriber's ntfy
+        #     target has permanently failed -- check that subscription's
+        #     ntfy_topic is reachable/correct; other subscribers' fan-out
+        #     is unaffected by design (ADR 0026), so this is never an
+        #     "everything is down" page.
         serverFiles:
           alerting_rules.yml:
             groups:
@@ -382,6 +395,26 @@ spec:
                     annotations:
                       summary: "ClinVar ingestion ran several times longer than its ~90s baseline"
                       description: "The most recent ClinVar ingestion run's observed duration is over 360s (4x the ~90s real-data baseline). See ADR 0020's SLO table."
+
+                  # watchlist-service DLQ depth (backlog #53's own AC: "a
+                  # metric and an alert" on subscriber dead-lettering).
+                  # watchlist_delivery_dlq_depth is a real-time gauge
+                  # (WatchlistMetrics), not a counter, so a plain threshold
+                  # is the right shape -- no rate()/increase() needed. > 0
+                  # for 5m: a single dead-lettered subscriber is itself
+                  # worth a human look (this cluster's subscriber count is
+                  # small enough that even one stuck delivery is a real
+                  # signal, not noise), but 5m avoids paging on the exact
+                  # instant a row crosses max-attempts before anyone's had
+                  # a chance to see it self-resolve on a borderline case.
+                  - alert: WatchlistDlqDepthHigh
+                    expr: watchlist_delivery_dlq_depth{job="watchlist-service"} > 0
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "watchlist-service has dead-lettered subscriber notifications"
+                      description: "watchlist_delivery_dlq_depth has been above 0 for 5m -- at least one subscriber's ntfy target has permanently failed delivery after app.delivery.max-attempts retries. See ADR 0020's SLO table and ADR 0026 (outbox-table-plus-relay)."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
