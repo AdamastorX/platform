@@ -25,13 +25,8 @@ spec:
         - name: watchlist-service
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
           # same convention as api/workers) -- bump this one line and open
-          # a PR to deploy a new build, once services' build-publish.yml
-          # has actually published an image for a commit on main. Backlog
-          # #53's own services PR has not merged yet at the time this
-          # manifest was written, so this placeholder must be bumped to
-          # the real published SHA before this Application can sync
-          # successfully -- see the PR description for the full status.
-          image: ghcr.io/adamastorx/watchlist-service:PLACEHOLDER_PENDING_SERVICES_MERGE
+          # a PR to deploy a new build.
+          image: ghcr.io/adamastorx/watchlist-service:0893ce5906d68dca74ce26dfd6a32c4ed0f8f625
           ports:
             - name: http
               containerPort: 8080
