@@ -218,10 +218,12 @@ spec:
         #   WorkersConsumerLagHigh: workers is falling behind
         #     work-items' production rate -- check if the pod is even
         #     running/consuming at all before assuming it's just slow.
-        #   ClinVarIngestionFreshnessBreach: no ClinVar ingestion has
-        #     completed (successfully or not) in over a week -- the
-        #     scheduled trigger may be silently dead; check
-        #     clinvar-service's logs and APScheduler state directly.
+        #   ClinVarIngestionFreshnessBreach: no ClinVar ingestion job has
+        #     reached status=succeeded in over a week (backlog #54: real
+        #     job outcomes, not "an attempt happened") -- check the most
+        #     recent job's failure_reason via GET
+        #     /internal/clinvar/ingest/{job_id} or clinvar_ingestion_job
+        #     directly, and clinvar-service's logs/APScheduler state.
         #   ClinVarIngestionDurationAnomaly: the last ingestion run took
         #     several times longer than the ~90s real-data baseline --
         #     the exact shape the double-ingestion incident had before
@@ -344,29 +346,31 @@ spec:
 
                   # clinvar-service ingestion freshness (ADR 0020: time
                   # since last *successful* ingestion exceeding the
-                  # scheduled weekly cadence). Known, stated limitation
-                  # (documented the same way ADR 0017 named its own
-                  # gaps): clinvar_ingestion_duration_seconds' Histogram
-                  # .time() wrapper (app/ingestion.py) records on both
-                  # success AND failure paths, so this can only detect
-                  # "no ingestion attempt at all in 8 days" (the
-                  # scheduler silently stopped firing), not "attempts
-                  # happened but every one failed". A dedicated
-                  # success-only counter would close that gap -- tracked
-                  # as backlog #21d rather than built here (this PR's
-                  # own persona rule: don't scope-creep into work a
-                  # separate, small follow-up item should own). 8 days,
-                  # not 7: the weekly cadence plus a one-day grace period
+                  # scheduled weekly cadence). Re-pointed by backlog #54
+                  # at clinvar_ingestion_jobs_total{status="succeeded"} --
+                  # a real job outcome from clinvar-service's new async
+                  # job control plane (its clinvar_ingestion_job table),
+                  # closing the gap this rule previously stated as a
+                  # known limitation:
+                  # clinvar_ingestion_duration_seconds_count's Histogram
+                  # .time() wrapper increments on both the success AND
+                  # failure paths, so the old expression could only ever
+                  # detect "no ingestion attempt at all in 8 days", never
+                  # "attempts happened but every one failed" -- exactly
+                  # backlog #21e's stated ingestion-side gap. The new
+                  # expression answers the ADR 0020 wording literally:
+                  # time since last *successful* ingestion. 8 days, not
+                  # 7: the weekly cadence plus a one-day grace period
                   # before treating a late run as a real breach rather
                   # than ordinary scheduling jitter.
                   - alert: ClinVarIngestionFreshnessBreach
-                    expr: increase(clinvar_ingestion_duration_seconds_count{job="clinvar-service"}[8d]) < 1
+                    expr: increase(clinvar_ingestion_jobs_total{job="clinvar-service", status="succeeded"}[8d]) < 1
                     for: 0m
                     labels:
                       severity: critical
                     annotations:
-                      summary: "no ClinVar ingestion attempt recorded in over 8 days"
-                      description: "clinvar-service has not recorded a completed ingestion run (success or failure) in over 8 days -- the weekly scheduled trigger may be silently dead. See ADR 0020's SLO table and the double-ingestion incident this whole metric surface was built for."
+                      summary: "no successful ClinVar ingestion in over 8 days"
+                      description: "clinvar-service has not recorded a job reaching status=succeeded in over 8 days -- either the weekly scheduled trigger is silently dead, or every recent attempt failed. Check GET /internal/clinvar/ingest/{job_id} (backlog #54) or clinvar_ingestion_job directly for the failure_reason of the most recent job. See ADR 0020's SLO table and the double-ingestion incident this whole metric surface was built for."
 
                   # clinvar-service ingestion-duration anomaly (ADR 0020:
                   # a run taking several multiples of the ~90s real-data
