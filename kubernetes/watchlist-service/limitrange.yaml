@@ -1,0 +1,15 @@
+# platform#35 pattern: watchlist-service/deployment.yaml's container
+# already sets an explicit CPU/memory limit, so this is a backstop for
+# anything added later in this namespace (the watchlist-postgresql chart's
+# own resourcesPreset covers itself), not a fix for a live gap.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-cpu-limit
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+      defaultRequest:
+        cpu: 250m

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# One-time, out-of-band creation of the 5 Secrets that postgresql / redis /
-# clinvar-postgresql / kafka / grafana now read via each chart's
-# existingSecret-style value (platform#36, extended to grafana after the
-# same non-idempotent-render risk was found live -- the grafana Secret's
-# own creationTimestamp was newer than the cluster's original bootstrap,
-# consistent with (not conclusive proof of, but consistent with) the same
-# drift class already confirmed for Postgres) instead of letting the chart
-# generate one itself.
+# One-time, out-of-band creation of the 6 Secrets that postgresql / redis /
+# clinvar-postgresql / kafka / grafana / watchlist-postgresql now read via
+# each chart's existingSecret-style value (platform#36, extended to grafana
+# after the same non-idempotent-render risk was found live -- the grafana
+# Secret's own creationTimestamp was newer than the cluster's original
+# bootstrap, consistent with (not conclusive proof of, but consistent with)
+# the same drift class already confirmed for Postgres -- and extended again
+# here to watchlist-postgresql, backlog #53, the same pattern applied fresh
+# to a new Postgres instance rather than reinvented) instead of letting the
+# chart generate one itself.
 #
 # Why this exists (the tradeoff platform#36 decided):
 #
@@ -50,20 +52,20 @@
 #   export KUBECONFIG=/path/to/kubeconfig
 #   ./create-stateful-secrets.sh
 #
-# Must run BEFORE root-app.yaml is applied / before ArgoCD's first sync
-# of the postgresql/redis/clinvar-postgresql/kafka/grafana Applications --
-# none of those charts can generate these Secrets anymore, so the Secret
-# has to already exist by the time each Application's first sync creates
-# the Deployment/pod that reads it via secretKeyRef.
+# Must run BEFORE root-app.yaml is applied / before ArgoCD's first sync of
+# the postgresql/redis/clinvar-postgresql/kafka/grafana/watchlist-postgresql
+# Applications -- none of those charts can generate these Secrets anymore,
+# so the Secret has to already exist by the time each Application's first
+# sync creates the Deployment/pod that reads it via secretKeyRef.
 #
 # Idempotent and safe to re-run: skips any Secret that already exists
 # rather than overwriting it. That matters specifically for this
-# project's real, already-running cluster -- it already has all 5
-# Secrets, already matching what the live Postgres/Redis/Kafka/Grafana
-# containers were actually started with. Regenerating any of them here
-# would immediately break that component (log out every Grafana session,
-# or worse for the database credentials). Re-running this script against
-# that cluster is a no-op.
+# project's real, already-running cluster -- it already has all 6
+# Secrets, already matching what the live Postgres/Redis/Kafka/Grafana/
+# watchlist-postgresql containers were actually started with. Regenerating
+# any of them here would immediately break that component (log out every
+# Grafana session, or worse for the database credentials). Re-running this
+# script against that cluster is a no-op.
 set -euo pipefail
 
 create_ns() {
@@ -100,6 +102,7 @@ create_ns api
 create_ns clinvar
 create_ns kafka
 create_ns grafana
+create_ns watchlist
 
 echo "==> postgresql (api namespace)"
 # Keys match the chart's auth.secretKeys defaults (adminPasswordKey,
@@ -136,4 +139,12 @@ create_secret grafana grafana \
   --from-literal=admin-user=admin \
   --from-literal=admin-password="$(gen_password)"
 
-echo "==> Done. All 5 stateful Secrets present."
+echo "==> watchlist-postgresql (watchlist namespace, backlog #53)"
+# Same existingSecret pattern as clinvar-postgresql above, applied fresh to
+# watchlist-service's own dedicated Postgres instance -- see
+# argocd/apps/watchlist-postgresql.yaml.
+create_secret watchlist-postgresql watchlist \
+  --from-literal=postgres-password="$(gen_password)" \
+  --from-literal=password="$(gen_password)"
+
+echo "==> Done. All 6 stateful Secrets present."

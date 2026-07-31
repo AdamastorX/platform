@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: watchlist-service
+  labels:
+    app: watchlist-service
+spec:
+  # A plain Deployment, deliberately NOT a Rollout -- backlog #46's canary +
+  # automated-SLO-gate pattern was applied only to api (see
+  # kubernetes/api/rollout.yaml's own comment: api is the one service with a
+  # real, already-dated incident and continuous real traffic from #45's
+  # generator today). watchlist-service has neither yet; extending the
+  # canary pattern here without a real reason would be exactly the kind of
+  # build-ahead-of-need ADR 0021 exists to rule out.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: watchlist-service
+  template:
+    metadata:
+      labels:
+        app: watchlist-service
+    spec:
+      containers:
+        - name: watchlist-service
+          # Image tag is the services repo's commit SHA (ADR 0008/0009,
+          # same convention as api/workers) -- bump this one line and open
+          # a PR to deploy a new build.
+          image: ghcr.io/adamastorx/watchlist-service:0893ce5906d68dca74ce26dfd6a32c4ed0f8f625
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.kafka.svc.cluster.local:9092
+            - name: OTLP_COLLECTOR_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://watchlist-postgresql.watchlist.svc.cluster.local:5432/watchlist
+            - name: SPRING_DATASOURCE_USERNAME
+              value: watchlist
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: watchlist-postgresql
+                  key: password
+            # ADR 0026 / backlog #21c: reuses the same already-verified-live
+            # ntfy.sh topic Alertmanager posts to, not a second channel.
+            # Default in application.yml already matches this value --
+            # explicit here for the same "documentation of the real value
+            # in use" reason api's own CLINVAR_SERVICE_URL override is.
+            - name: NTFY_DEFAULT_TOPIC
+              value: adamastorx-alerts-64ec5a92c29196ad
+          # Spring Boot Actuator health groups, same shape as api's own
+          # Deployment (services#1) -- JVM cold start budget, not a
+          # trivial static-binary proof app's.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          # Same starting values as api's own container (platform#35) --
+          # watchlist-service is a comparable-weight Spring Boot workload
+          # (webmvc + JPA + spring-kafka + a @Scheduled poll loop, no
+          # heavier component than api already carries). Not yet
+          # re-sized from real observed usage the way api/clinvar-service's
+          # resourcequota.yaml comments are (this workload has never run on
+          # the cluster) -- revisit once real `kubectl top` numbers exist,
+          # stated here rather than silently presented as measured.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

@@ -1,0 +1,61 @@
+# Dedicated PostgreSQL for watchlist-service (backlog #53). Same
+# chart/pattern as api's own postgresql.yaml (ADR 0012) and
+# clinvar-postgresql.yaml (ADR 0019) -- a third, independent instance,
+# not a shared database across a namespace boundary. Same reasoning both
+# of those already established: a single consumer, a generated credential
+# that can't cross namespaces (ADR 0012), so a second small Postgres in
+# watchlist-service's own namespace is the cheap, boring, correct answer
+# rather than a cross-namespace secret-sync mechanism.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: watchlist-postgresql
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: postgresql
+    targetRevision: 16.2.1
+    helm:
+      valuesObject:
+        fullnameOverride: watchlist-postgresql
+        # Same registry override api/clinvar-postgresql already needed
+        # (Bitnami Secure Images transition, Aug 2025) -- same chart
+        # version, same tag, so no new verification needed here.
+        image:
+          registry: docker.io
+          repository: bitnamilegacy/postgresql
+          tag: 17.1.0-debian-12-r0
+        auth:
+          # existingSecret from day one (platform#36's pattern, not
+          # retrofitted like postgresql/clinvar-postgresql had to be) --
+          # this is a brand-new instance, so there was never a
+          # chart-generated Secret to migrate off of. Provisioning:
+          # bootstrap/create-stateful-secrets.sh's watchlist-postgresql
+          # block, same out-of-band-secret tradeoff documented in that
+          # script's header.
+          username: watchlist
+          database: watchlist
+          existingSecret: watchlist-postgresql
+        primary:
+          resourcesPreset: small
+          persistence:
+            size: 2Gi
+        service:
+          type: ClusterIP
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: watchlist
+  syncPolicy:
+    automated:
+      # prune off, same reason as postgresql.yaml/clinvar-postgresql.yaml:
+      # existingSecret means this chart never renders a "watchlist-postgresql"
+      # Secret object -- once bootstrap/create-stateful-secrets.sh creates it
+      # out of band, prune: true would delete it out from under the running
+      # Postgres container on the very next sync.
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

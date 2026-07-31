@@ -644,6 +644,164 @@ spec:
                     }
                   ]
                 }
+            watchlist-service-golden-signals:
+              json: |
+                {
+                  "uid": "watchlist-service-golden-signals",
+                  "title": "watchlist-service — Fan-out and Delivery (backlog #53)",
+                  "description": "watchlist-service has no meaningful outward HTTP traffic of its own (subscription CRUD is low-volume admin traffic) — its real golden signals are the fan-out/delivery pipeline ADR 0026 introduces: how long resolving+persisting takes, how long an actual delivery takes end to end, delivery attempts by outcome, and DLQ depth. No _bucket histogram wired for these two Timers yet (only http.server.requests got percentiles-histogram enabled, ADR 0020) — these two panels plot sum/count average latency, not p95; a real follow-up, not silently presented as a percentile it isn't.",
+                  "tags": [
+                    "golden-signals",
+                    "watchlist-service"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Fan-out latency — average (event received → delivery rows persisted)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "rate(watchlist_fanout_latency_seconds_sum{job=\"watchlist-service\"}[$__rate_interval]) / rate(watchlist_fanout_latency_seconds_count{job=\"watchlist-service\"}[$__rate_interval])",
+                          "legendFormat": "avg fan-out latency"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "Delivery latency — average (delivery row created → sent)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "rate(watchlist_delivery_latency_seconds_sum{job=\"watchlist-service\"}[$__rate_interval]) / rate(watchlist_delivery_latency_seconds_count{job=\"watchlist-service\"}[$__rate_interval])",
+                          "legendFormat": "avg delivery latency"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "title": "Delivery attempts by outcome",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (outcome) (rate(watchlist_delivery_attempts_total{job=\"watchlist-service\"}[$__rate_interval]))",
+                          "legendFormat": "{{outcome}}"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 4,
+                      "title": "DLQ depth (current)",
+                      "description": "watchlist_delivery_dlq_depth, the same gauge WatchlistDlqDepthHigh alerts on (argocd/apps/prometheus.yaml).",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              { "color": "green", "value": null },
+                              { "color": "red", "value": 1 }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "watchlist_delivery_dlq_depth{job=\"watchlist-service\"}",
+                          "legendFormat": "DLQ depth"
+                        }
+                      ]
+                    }
+                  ]
+                }
   destination:
     server: https://kubernetes.default.svc
     namespace: grafana
