@@ -19,8 +19,9 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: workers
-  # TEMPORARY, backlog #76 live verification: same real pause needed for
-  # chaos scenario 3 (platform#73/#75). Reverted via a follow-up PR.
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
