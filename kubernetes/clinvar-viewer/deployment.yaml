@@ -22,7 +22,7 @@ spec:
           # config.js-and-Authorization-header change for the mount below
           # to have any effect -- see this PR's description for the
           # merge-order note.
-          image: ghcr.io/adamastorx/clinvar-viewer:2d634bd4532204e95e9392b0ee23f9373cf2e9ca
+          image: ghcr.io/adamastorx/clinvar-viewer:23a6f1d3ca636e3ba198f497fb1d6769507c28d2
           ports:
             - name: http
               containerPort: 8080
