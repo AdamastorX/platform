@@ -75,14 +75,22 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 6
-          # Same reasoning platform#37's now-reverted workers sizing
-          # used: CPU limit bounds the tabix-indexing burst (weekly
+          # CPU *limit* bounds the tabix-indexing burst (weekly
           # ingestion), memory covers buffering the ~184MiB compressed
-          # VCF during download. Carried over unchanged since the actual
-          # workload moved here, not duplicated from scratch.
+          # VCF during download -- same reasoning platform#37's
+          # now-reverted workers sizing used, carried over unchanged since
+          # the actual workload moved here, not duplicated from scratch.
+          # backlog #77 re-sizes the CPU *request* only: real `kubectl top
+          # pod` usage sampled at 27-32m across two reads ~2 min apart
+          # (steady-state lookup traffic, no ingestion running during
+          # sampling), ~11-13% of the original 250m request. Trimmed to
+          # 100m (~3-4x observed steady-state usage) -- the 1-core limit
+          # above is what actually has to cover the weekly tabix-indexing
+          # burst, and it's unchanged, so this doesn't touch that
+          # headroom.
           resources:
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 384Mi
             limits:
               cpu: "1"

@@ -2,18 +2,24 @@
 # namespace (watchlist-service Deployment + the watchlist-postgresql Helm
 # chart, both deployed here per backlog #53).
 #
-# Estimated, not yet measured from real `kubectl top` usage the way
-# api/clinvar-service's own resourcequota.yaml comments are -- this
-# workload has never run on the cluster at the time this manifest was
-# written. Stated openly rather than presented as measured:
-#   watchlist-service:     requests cpu=250m mem=256Mi, limits cpu=1 mem=512Mi (deployment.yaml, same starting point as api's own container)
-#   watchlist-postgresql:  requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small, same as postgresql/clinvar-postgresql)
-# Estimated steady-state totals: requests cpu=750m mem=768Mi, limits cpu=1750m mem=1280Mi.
+# Originally estimated (this workload had never run on the cluster when
+# this manifest was first written), now re-sized against real usage --
+# backlog #77's node-wide CPU audit was the first time real `kubectl top`
+# numbers existed for this namespace:
+#   watchlist-service:     requests cpu=100m mem=256Mi, limits cpu=1 mem=512Mi
+#                          (backlog #77: CPU request trimmed from the
+#                          original 250m estimate -- real usage sampled at
+#                          3-4m, one of the largest gaps found in that
+#                          audit. Limit/memory untouched)
+#   watchlist-postgresql:  requests cpu=100m mem=512Mi, limits cpu=750m mem=768Mi
+#                          (backlog #77: CPU request trimmed from the
+#                          chart's resourcesPreset: small default of 500m --
+#                          real usage sampled at 14-22m. Limit/memory
+#                          untouched)
+# Steady-state totals: requests cpu=200m mem=768Mi, limits cpu=1750m mem=1280Mi.
 # A rolling update of watchlist-service (default maxSurge=1) briefly adds
-# +250m/+256Mi requests and +1000m/+512Mi limits at peak. Quota below
-# clears that estimated peak with headroom -- revisit once real usage
-# numbers exist, same as api's own quota was re-sized after a live
-# CrashLoopBackOff (see kubernetes/api/resourcequota.yaml's comment).
+# +100m/+256Mi requests and +1000m/+512Mi limits at peak. Quota below
+# clears that real peak with headroom.
 apiVersion: v1
 kind: ResourceQuota
 metadata:

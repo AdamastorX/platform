@@ -41,7 +41,21 @@ spec:
           database: watchlist
           existingSecret: watchlist-postgresql
         primary:
+          # backlog #77: same trim and same reasoning as api's own
+          # postgresql.yaml -- real usage here sampled at 14-22m across
+          # two `kubectl top pod` reads ~2 min apart, 3-4% of the
+          # inherited "small" preset's 500m CPU request. CPU limit (750m)
+          # and both memory values stay at the preset's own numbers,
+          # unchanged -- see postgresql.yaml's own comment for the full
+          # writeup of why only the request moves.
           resourcesPreset: small
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 750m
+              memory: 768Mi
           persistence:
             size: 2Gi
         service:
