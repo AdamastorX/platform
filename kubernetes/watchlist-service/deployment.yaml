@@ -68,17 +68,25 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 10
             failureThreshold: 6
-          # Same starting values as api's own container (platform#35) --
-          # watchlist-service is a comparable-weight Spring Boot workload
-          # (webmvc + JPA + spring-kafka + a @Scheduled poll loop, no
-          # heavier component than api already carries). Not yet
-          # re-sized from real observed usage the way api/clinvar-service's
-          # resourcequota.yaml comments are (this workload has never run on
-          # the cluster) -- revisit once real `kubectl top` numbers exist,
-          # stated here rather than silently presented as measured.
+          # Originally the same starting values as api's own container
+          # (platform#35) -- watchlist-service is a comparable-weight
+          # Spring Boot workload (webmvc + JPA + spring-kafka + a
+          # @Scheduled poll loop), sized defensively before it had ever
+          # run on the cluster. It has now run for real: backlog #77
+          # re-sizes the CPU *request* against real `kubectl top pod`
+          # usage sampled at 3-4m across two reads ~2 min apart, ~1-2% of
+          # the original 250m request -- one of the largest gaps found in
+          # that node-wide audit. Trimmed to 100m (still >25x observed
+          # usage, deliberately generous since this is a JVM workload --
+          # the #35 CrashLoopBackOff incident on api was a cold-start CPU
+          # story, so headroom here stays wide even though that incident
+          # was about api specifically, not this service). CPU *limit*
+          # stays at 1 full core, unchanged -- request governs steady-state
+          # scheduling weight, limit is what actually bounds a cold-start
+          # or GC burst, and this trim doesn't touch it.
           resources:
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 256Mi
             limits:
               cpu: "1"

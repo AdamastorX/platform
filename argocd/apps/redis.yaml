@@ -98,7 +98,23 @@ spec:
           existingSecret: redis
           existingSecretPasswordKey: redis-password
         master:
+          # backlog #77: same trim as the three Postgres instances (see
+          # postgresql.yaml's comment for the full writeup) -- real
+          # `kubectl top pod` usage here sampled at 36-38m across two
+          # reads ~2 min apart, 7-8% of the inherited "small" preset's
+          # 500m CPU request (Redis runs a bit hotter than the idle
+          # Postgres instances, real traffic from api's cache-aside path,
+          # so it keeps a taller request than the 100m given to Postgres:
+          # 150m is still ~4x observed usage). CPU limit (750m) and both
+          # memory values stay at the preset's own numbers, unchanged.
           resourcesPreset: small
+          resources:
+            requests:
+              cpu: 150m
+              memory: 512Mi
+            limits:
+              cpu: 750m
+              memory: 768Mi
           persistence:
             enabled: false
           service:

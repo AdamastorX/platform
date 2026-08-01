@@ -4,9 +4,16 @@
 #
 # Sized from real usage, not guessed -- `kubectl -n clinvar get pods -o
 # json` on the live cluster (2026-07) showed:
-#   clinvar-service:     requests cpu=250m mem=384Mi, limits cpu=1 mem=768Mi
-#   clinvar-postgresql:  requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
-# Steady-state totals: requests cpu=750m mem=896Mi, limits cpu=1750m mem=1536Mi.
+#   clinvar-service:     requests cpu=100m mem=384Mi, limits cpu=1 mem=768Mi
+#                        (backlog #77: CPU request trimmed from 250m --
+#                        real usage sampled at 27-32m steady-state.
+#                        Limit/memory untouched, still covers the weekly
+#                        ingestion burst)
+#   clinvar-postgresql:  requests cpu=100m mem=512Mi, limits cpu=750m mem=768Mi
+#                        (backlog #77: CPU request trimmed from the chart's
+#                        resourcesPreset: small default of 500m -- real
+#                        usage sampled at 18-21m. Limit/memory untouched)
+# Steady-state totals: requests cpu=200m mem=896Mi, limits cpu=1750m mem=1536Mi.
 # clinvar-service is the one Deployment here (clinvar-postgresql is a
 # StatefulSet, no surge on update) -- a rolling update temporarily runs
 # two clinvar-service pods (default maxSurge=1), adding +250m/+384Mi

@@ -58,7 +58,30 @@ spec:
           database: api
           existingSecret: postgresql
         primary:
+          # backlog #77: resourcesPreset: small (500m/750m cpu) was the
+          # chart default carried over unexamined since ADR 0012 -- real
+          # `kubectl top pod` usage on the live cluster sat at 12m
+          # steady-state (sampled twice, ~2 min apart, same order of
+          # magnitude both times: 12m/12m), 2-4% of the 500m request.
+          # Explicit resources: below drops the CPU *request* to 100m
+          # (still >8x observed usage) while leaving the CPU *limit*
+          # (750m) and both memory values exactly at the "small" preset's
+          # own numbers unchanged -- this is a steady-state request trim,
+          # not a burst-capacity change, and memory already has real slack
+          # cluster-wide so it isn't touched either. `resources:` here
+          # takes precedence over resourcesPreset in this chart's helper
+          # (common.resources.preset), so resourcesPreset above is now
+          # inert; left in place as a comment-free no-op rather than
+          # removed, so the "small" starting point this diverged from
+          # stays visible.
           resourcesPreset: small
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: 750m
+              memory: 768Mi
           persistence:
             # A real PVC, not emptyDir -- the one deliberate break from
             # Kafka's precedent (ADR 0011 explicitly accepted losing

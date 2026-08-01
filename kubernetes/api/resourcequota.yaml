@@ -7,10 +7,18 @@
 # on the live cluster (2026-07) showed:
 #   api:        requests cpu=250m mem=256Mi, limits cpu=1 mem=512Mi (bumped
 #               from 500m after a real CrashLoopBackOff -- see
-#               deployment.yaml's cpu-limit comment for the incident)
-#   postgresql: requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
-#   redis:      requests cpu=500m mem=512Mi, limits cpu=750m mem=768Mi (chart resourcesPreset: small)
-# Steady-state totals: requests cpu=1250m mem=1280Mi, limits cpu=2500m mem=2048Mi.
+#               deployment.yaml's cpu-limit comment for the incident.
+#               CPU *request* left untouched by backlog #77's trim below --
+#               #35's own cold-start incident is exactly the reasoning #77
+#               excludes api/workers from a request trim over)
+#   postgresql: requests cpu=100m mem=512Mi, limits cpu=750m mem=768Mi (backlog
+#               #77: CPU request trimmed from the chart's resourcesPreset:
+#               small default of 500m -- real usage sampled at 12m, ~2%
+#               of that default. Limit/memory untouched)
+#   redis:      requests cpu=150m mem=512Mi, limits cpu=750m mem=768Mi (backlog
+#               #77: CPU request trimmed from 500m -- real usage sampled
+#               at 36-38m. Limit/memory untouched)
+# Steady-state totals: requests cpu=500m mem=1280Mi, limits cpu=2500m mem=2048Mi.
 # api is the one Deployment here (Postgres/Redis are StatefulSets, no
 # surge on update) -- a rolling update temporarily runs two api pods
 # (default maxSurge=1), adding +250m/+256Mi requests and +1/+512Mi limits
