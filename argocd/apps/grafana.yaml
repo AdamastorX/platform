@@ -113,6 +113,41 @@ spec:
                     spanEndTimeShift: '1h'
                     filterByTraceID: false
                     filterBySpanID: false
+                  # backlog #57: tracesToProfiles wires the datasource
+                  # connection (service.name/service.namespace tag mapping
+                  # to Pyroscope, so a span's own resource attributes are
+                  # what selects the matching profile series) -- this part
+                  # is real and live: api/clinvar-service already emit
+                  # those resource attributes on every span (ADR 0013),
+                  # and Pyroscope's profiles below are labelled with the
+                  # matching `service_name` (rollout.yaml/deployment.yaml's
+                  # PYROSCOPE_APPLICATION_NAME). **Stated gap, not assumed
+                  # working**: Grafana's own docs are explicit that the
+                  # actual clickable trace-to-profile link (the
+                  # `pyroscope.profile.id` span attribute a slow span
+                  # needs to open a flame graph scoped to that exact span)
+                  # requires a language-specific OTel span-processor
+                  # *bridge package* running inside the profiled process
+                  # (e.g. Java's io.pyroscope:otel, Python's
+                  # pyroscope-otel) -- neither service has that wired in
+                  # (both are profiled via the unprivileged init-container
+                  # SDK injection in rollout.yaml/deployment.yaml, not a
+                  # full in-code OTel integration). This datasource
+                  # wiring is a real prerequisite for that follow-up, not
+                  # a claim that span-level correlation already works --
+                  # not independently click-verified against a real trace
+                  # this session; a human should check this post-merge.
+                  tracesToProfiles:
+                    datasourceUid: pyroscope
+                    tags:
+                      - key: service.name
+                        value: service_name
+                    profileTypeId: process_cpu:cpu:nanoseconds:cpu:nanoseconds
+              - name: Pyroscope
+                uid: pyroscope
+                type: grafana-pyroscope-datasource
+                url: http://pyroscope.pyroscope.svc.cluster.local:4040
+                access: proxy
         # Dashboards as code (observability#4, backlog #20, ADR 0017) --
         # golden signals (latency, traffic, errors, saturation) for each of
         # api/workers, one dashboard per service. File-based

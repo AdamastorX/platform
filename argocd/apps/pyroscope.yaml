@@ -1,0 +1,141 @@
+# Pyroscope for backlog #57 (M9 New Signal Classes) -- continuous
+# profiling, the fourth signal pillar (metrics/logs/traces already exist)
+# motivated by a real incident that was invisible to all three: the #35
+# 95-minute CrashLoopBackOff (api pegged at 498m/500m CPU during JVM cold
+# start, diagnosed by inference from a single `kubectl top` number, not by
+# seeing which code actually burned that CPU).
+#
+# Own `pyroscope` namespace, same "own namespace + own Helm chart
+# Application" pattern as every other Grafana-stack component here
+# (Loki/Tempo/Grafana/Alloy, ADR 0014/0015). repoURL is
+# grafana.github.io/helm-charts -- the same non-deprecated repo Alloy
+# already uses -- confirmed via the chart's own Chart.yaml (grafana/
+# pyroscope repo, version 2.2.0, no `deprecated: true` marker, published
+# 2026-07-22) before pinning, same discipline as every other chart pin in
+# this directory.
+#
+# Chart/tool choice re-verified for this item, not assumed from the
+# backlog AC's text alone -- Pyroscope is still a real fit: it's still a
+# real Grafana datasource (`grafana-pyroscope-datasource`) bundled with
+# Grafana >=12.3.0 -- this cluster's Grafana chart (argocd/apps/
+# grafana.yaml) is already on 12.8.0, so no plugin install is needed,
+# confirmed against the datasource's own stated minimum version rather
+# than assumed still current.
+#
+# Instrumentation path, chosen deliberately over the two live
+# alternatives: an in-app SDK baked into a rebuilt image (the AC's
+# literal suggestion) needs a services-repo code change *and* a merged,
+# CI-published GHCR image before a single profile could exist -- this
+# session opens PRs but does not merge them (per this project's own
+# review discipline), so that path alone would mean no live profile all
+# session. A cluster-wide external profiler (Grafana Alloy's
+# pyroscope.java/pyroscope.ebpf, already running here for logs) was
+# tried first and rejected: both require the Alloy DaemonSet to run
+# privileged, as root, in the host PID namespace -- a real, meaningful
+# escalation from Alloy's current unprivileged log-only footprint, not
+# something to take on cluster-wide without a slower, more deliberate
+# review than this item's own session budget allows.
+#
+# What's actually used instead: the real Pyroscope Java/Python SDKs,
+# still in-process, but injected via an unprivileged init-container
+# pattern (kubernetes/api/rollout.yaml, kubernetes/clinvar-service/
+# deployment.yaml) instead of baked into the image -- a plain emptyDir
+# volume + an ordinary, non-root init container fetching the real
+# published agent/package, no image rebuild, no elevated privilege
+# anywhere, and no services-repo change needed for the profiling data
+# path itself. Real cost, stated directly, not discovered later: this
+# is a real dependency drift risk (the agent version lives in a
+# platform-repo manifest, not services' own dependency lockfile) and
+# doesn't help the *separate* profile-to-trace span-correlation feature,
+# which genuinely does need a language-specific OTel bridge wired into
+# each service's own tracer setup in code -- stated as a real gap, not
+# assumed working, see grafana.yaml's Tempo datasource comment.
+#
+# Microservices mode left off (chart default,
+# architecture.microservices.enabled: false) -- single-binary/monolith,
+# the same "no scale machinery for a scale problem this cluster doesn't
+# have" reasoning already used for Loki (Monolithic) and Tempo
+# (single-binary). No minio (chart default minio.enabled: false) --
+# filesystem storage backend, matching Loki's own rejection of an object
+# store for a single-node dev cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pyroscope
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: pyroscope
+    targetRevision: 2.2.0
+    helm:
+      valuesObject:
+        fullnameOverride: pyroscope
+        pyroscope:
+          # Sized conservatively and explicitly, following backlog #77's
+          # own established style: real `kubectl top`/`kubectl describe
+          # node` numbers, not the chart's own "we don't set a default,
+          # that's your call" empty {}. This cluster had ~1855m of real
+          # free CPU *request* headroom (`kubectl describe node`,
+          # 2026-08-01, post-#77: cpu 2145m/4000m (53%) requested) before
+          # this Application existed -- 150m/256Mi requests is a small
+          # fraction of that, leaving real room for #58/#63/#64/#65's own
+          # future components, not a cramped fit. Limits give real burst
+          # room for compaction plus concurrent flame-graph queries during
+          # this item's own live #35 reproduction test. Real post-deploy
+          # `kubectl top pod -n pyroscope` numbers recorded in this item's
+          # backlog closing comment / PR description, per the same
+          # discipline #77 used -- not left as an unverified guess.
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          persistence:
+            enabled: true
+            # Nominal only -- like every other PVC on this cluster
+            # (Postgres/Loki/Tempo), local-path enforces no quota (#21d,
+            # already known); the real ceiling is the node's shared disk
+            # (169GB free, `df -h /`, 2026-08-01). 3Gi is a starting size,
+            # not a hard limit -- real growth-rate-vs-retention numbers
+            # measured live for this item, see this item's backlog closing
+            # comment / PR description.
+            size: 3Gi
+          extraArgs:
+            # 72h -- matches Loki/Tempo's own retention window (ADR 0015)
+            # so a profile stays correlatable for the same period as the
+            # logs/traces around it, not the chart's own longer default.
+            # This is the flag that actually deletes data past the
+            # window -- confirmed against Pyroscope's own compactor docs
+            # before setting it (the same "retention config alone doesn't
+            # delete anything, the compactor does" gotcha Loki's own
+            # config already hit for this project, re-checked here rather
+            # than assumed to carry over).
+            compactor.blocks-retention-period: 72h
+        # Chart default deploys its own bundled Alloy sub-chart
+        # (alloy.enabled: true) purely to self-scrape Pyroscope's own Go
+        # runtime profiles (memory/cpu/goroutine) -- confirmed by
+        # rendering this exact chart/version locally: it adds a second,
+        # separate Alloy StatefulSet + two Services on top of the
+        # single-binary pyroscope StatefulSet this Application actually
+        # needs. Not needed here -- this item profiles api/clinvar-service,
+        # not Pyroscope itself -- and a second always-on component is
+        # real, avoidable CPU/memory this cluster doesn't have to spare
+        # (backlog #77). Disabled explicitly rather than left at the
+        # chart's own default.
+        alloy:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: pyroscope
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

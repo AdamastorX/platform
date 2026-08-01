@@ -96,6 +96,24 @@ spec:
       labels:
         app: api
     spec:
+      # backlog #57: fetches the real, published Pyroscope Java agent jar
+      # (grafana/pyroscope-java v2.8.0, github release asset) into a
+      # shared emptyDir -- an unprivileged init-container/agent-injection
+      # pattern, not a rebuilt image and not a privileged DaemonSet
+      # attaching from outside the container (see argocd/apps/
+      # pyroscope.yaml's own comment for why that alternative was
+      # rejected). curlimages/curl runs as its own non-root user by
+      # default; nothing here needs root or an elevated capability.
+      initContainers:
+        - name: pyroscope-agent-fetch
+          image: curlimages/curl:8.11.1
+          command:
+            - sh
+            - -c
+            - curl -fsSL -o /pyroscope-agent/pyroscope.jar https://github.com/grafana/pyroscope-java/releases/download/v2.8.0/pyroscope.jar
+          volumeMounts:
+            - name: pyroscope-agent
+              mountPath: /pyroscope-agent
       containers:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
@@ -106,7 +124,28 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          volumeMounts:
+            - name: pyroscope-agent
+              mountPath: /pyroscope-agent
+              readOnly: true
           env:
+            # backlog #57: JAVA_TOOL_OPTIONS is read automatically by any
+            # `java` invocation (no ENTRYPOINT change needed, ADR 0009's
+            # image stays untouched) -- the JVM prints one harmless
+            # "Picked up JAVA_TOOL_OPTIONS" diagnostic line to stderr on
+            # start, expected and not an error. The two -XX flags are
+            # Pyroscope's own documented recommendation for accurate
+            # async-profiler line numbers, not this project's default.
+            - name: JAVA_TOOL_OPTIONS
+              value: "-javaagent:/pyroscope-agent/pyroscope.jar -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints"
+            - name: PYROSCOPE_APPLICATION_NAME
+              value: api
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope.pyroscope.svc.cluster.local:4040
+            # JFR backend (not the default "collapsed" format) -- Pyroscope's
+            # own docs recommend this for production/real use.
+            - name: PYROSCOPE_FORMAT
+              value: jfr
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092
             - name: OTLP_COLLECTOR_ENDPOINT
@@ -177,3 +216,6 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+      volumes:
+        - name: pyroscope-agent
+          emptyDir: {}

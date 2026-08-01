@@ -19,6 +19,26 @@ spec:
       labels:
         app: clinvar-service
     spec:
+      # backlog #57: pip-installs the real, published `pyroscope-io`
+      # package into a shared emptyDir instead of baking it into a
+      # rebuilt image -- same unprivileged init-container/agent-injection
+      # pattern as kubernetes/api/rollout.yaml, see that file's comment
+      # and argocd/apps/pyroscope.yaml's own comment for why (no image
+      # rebuild/merge dependency, no privileged DaemonSet). python:3.12-slim
+      # matches this service's own Dockerfile base exactly (glibc/ABI
+      # match for pyroscope-io's compiled extension) -- confirmed against
+      # clinvar-service/Dockerfile before picking this init-container image
+      # rather than assumed compatible.
+      initContainers:
+        - name: pyroscope-agent-install
+          image: python:3.12-slim
+          command:
+            - sh
+            - -c
+            - pip install --no-cache-dir --target=/pyroscope-deps pyroscope-io
+          volumeMounts:
+            - name: pyroscope-deps
+              mountPath: /pyroscope-deps
       containers:
         - name: clinvar-service
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
@@ -29,7 +49,22 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          # backlog #57: the image's own ENTRYPOINT (`uvicorn app.main:app
+          # ...`) is untouched in the services repo -- overridden here at
+          # the Kubernetes level only, wrapping the same call with a
+          # one-line pyroscope.configure() first. Equivalent to the
+          # original entrypoint otherwise: same module (app.main:app),
+          # same host/port.
+          command: ["python", "-c"]
+          args:
+            - |
+              import pyroscope
+              pyroscope.configure(application_name="clinvar-service", server_address="http://pyroscope.pyroscope.svc.cluster.local:4040")
+              import uvicorn
+              uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
           env:
+            - name: PYTHONPATH
+              value: /pyroscope-deps
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092
             - name: OTLP_COLLECTOR_ENDPOINT
@@ -98,7 +133,12 @@ spec:
           volumeMounts:
             - name: refdata
               mountPath: /data/clinvar
+            - name: pyroscope-deps
+              mountPath: /pyroscope-deps
+              readOnly: true
       volumes:
         - name: refdata
           persistentVolumeClaim:
             claimName: clinvar-service-refdata
+        - name: pyroscope-deps
+          emptyDir: {}
