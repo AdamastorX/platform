@@ -11,6 +11,12 @@
 # target_rps=0.5 peaks at one request every two seconds; the diurnal
 # trough (min_rps_fraction=0.2 of that) is one request every ten
 # seconds -- non-zero and shaped, never a load test.
+#
+# TEMPORARY, backlog #23 chaos scenario 3 (consumer-group lag): bumped
+# to 10 to reach WorkersConsumerLagHigh's 500-record threshold in a
+# reasonable window instead of the ~40 minutes 0.5 would take. Reverted
+# via a follow-up PR once the scenario is done -- see that PR and
+# observability/chaos/03-consumer-lag.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -18,7 +24,7 @@ metadata:
 data:
   config.json: |
     {
-      "target_rps": 0.5,
+      "target_rps": 10,
       "min_rps_fraction": 0.2,
       "cycle_seconds": 86400,
       "error_fraction": 0.05,
