@@ -229,8 +229,14 @@ spec:
             # size (already accounted for in resourcequota.yaml's own
             # "rolling update temporarily runs two api pods" headroom
             # comment -- a canary surge pod is the same shape of peak).
+            # LIVE TEST (backlog #57): deliberately reproducing the exact
+            # #35 CrashLoopBackOff shape (500m is the real value that
+            # caused that live incident) to capture a real Pyroscope
+            # flame graph of the JVM cold-start CPU burn instead of only
+            # inferring it from a single kubectl top number. Reverted to
+            # 1 (the real, incident-fixed value) immediately after.
             limits:
-              cpu: "1"
+              cpu: 500m
               memory: 512Mi
       volumes:
         - name: pyroscope-agent
