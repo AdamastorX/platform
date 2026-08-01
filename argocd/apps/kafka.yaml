@@ -35,7 +35,29 @@ spec:
         # don't use — one node plays both roles.
         controller:
           replicaCount: 1
-          resourcesPreset: small
+          # backlog #75: was resourcesPreset: small (512Mi request/768Mi
+          # limit, confirmed live via `kubectl describe pod`) until a real
+          # chaos-scenario-3 exercise (observability/chaos/03-consumer-lag.md)
+          # OOMKilled the broker under a real, accumulating unconsumed
+          # backlog -- KAFKA_HEAP_OPTS sizes the JVM heap to 75% of the
+          # container's memory limit, leaving too little real headroom for
+          # everything else (page cache for log segments especially) once
+          # messages pile up. Memory bumped explicitly (not just a bigger
+          # preset) since CPU was never implicated and this node's CPU is
+          # already tight (98% of allocatable requested, confirmed live via
+          # `kubectl describe node`) -- memory has real headroom (only 35%
+          # of ~19.4Gi in limits), confirmed before picking this number, not
+          # assumed. Not yet re-verified against a second real OOM
+          # (backlog #75's own stated AC) -- this is the fast, defensible
+          # fix given real headroom exists and CPU is the actually scarce
+          # resource here; the clean isolating re-run stays open.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 750m
+              memory: 1536Mi
           persistence:
             # Small single-node dev cluster, no durability requirement yet
             # (ADR 0011 accepts topic data loss on restart) — emptyDir over
