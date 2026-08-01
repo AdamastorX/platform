@@ -246,6 +246,15 @@ spec:
         #   WorkersConsumerLagHigh: workers is falling behind
         #     work-items' production rate -- check if the pod is even
         #     running/consuming at all before assuming it's just slow.
+        #   WorkersConsumerMissing: workers isn't reporting a consumer-lag
+        #     metric at all (backlog #76) -- this is the "the pod is even
+        #     running" check the rule above tells you to do by hand, now
+        #     automatic. Real finding (chaos scenario 3,
+        #     observability/chaos/03-consumer-lag.md): the lag metric is
+        #     self-reported by workers' own JVM, so it goes completely
+        #     dark -- not a high number, no series at all -- exactly when
+        #     the consumer is fully stopped, which is the one case
+        #     WorkersConsumerLagHigh structurally cannot catch.
         #   ClinVarIngestionFreshnessBreach: no ClinVar ingestion job has
         #     reached status=succeeded in over a week (backlog #54: real
         #     job outcomes, not "an attempt happened") -- check the most
@@ -383,6 +392,34 @@ spec:
                     annotations:
                       summary: "workers consumer lag sustained above 500 records"
                       description: "workers' work-items consumer group backlog has stayed above 500 un-consumed records for 10m. See ADR 0020's SLO table."
+
+                  # backlog #76: companion to WorkersConsumerLagHigh above,
+                  # not a replacement -- that rule alerts on a real,
+                  # reported lag *value*; this one alerts on the metric's
+                  # own *absence*, confirmed live (chaos scenario 3,
+                  # observability/chaos/03-consumer-lag.md) to be exactly
+                  # what happens when workers has zero replicas: no
+                  # Prometheus scrape target at all (pod-role service
+                  # discovery has nothing to discover), so
+                  # kafka_consumer_fetch_manager_records_lag isn't a large
+                  # number, it's an empty result set. absent(...) is the
+                  # correct primitive for that -- it evaluates to 1 when
+                  # zero series match the selector, not when a matching
+                  # series happens to read 0. `for: 3m`: long enough to
+                  # not fire on a normal rolling deploy's brief gap between
+                  # the old pod terminating and the new one passing
+                  # readiness (worst case ~80s per the deployment's own
+                  # probe budget, platform#35), short enough to catch a
+                  # genuinely stuck-down consumer in minutes, not the
+                  # 95-minute silent stall #35's own incident had.
+                  - alert: WorkersConsumerMissing
+                    expr: absent(kafka_consumer_fetch_manager_records_lag{job="workers"})
+                    for: 3m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "workers consumer-lag metric missing -- consumer likely not running"
+                      description: "workers has reported no kafka_consumer_fetch_manager_records_lag series for 3m -- almost certainly means the pod isn't running/scraped at all, not that lag is low. Check `kubectl get pods -n workers` directly. See backlog #76 / observability/chaos/03-consumer-lag.md."
 
                   # clinvar-service ingestion freshness (ADR 0020: time
                   # since last *successful* ingestion exceeding the
