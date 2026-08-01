@@ -45,6 +45,34 @@ Deployment/pod reading it via `secretKeyRef`. The script is idempotent
 an already-bootstrapped cluster without disturbing a running
 Postgres/Redis/Kafka's actual credentials.
 
+## Per-tenant API keys (backlog #56)
+
+The same script also provisions the Secrets backing api's edge auth
+(`kubernetes/api/middlewares.yaml`'s `api-key-auth`/`api-key-ratelimit`
+Traefik middleware): `api-tenant-keys` (api namespace, the htpasswd file
+Traefik itself reads), `workload-generator-api-key` (workload-generator
+namespace) and `clinvar-viewer-api-key` (clinvar-viewer namespace, holding
+a ready-to-mount `config.js`) -- one raw key generated once per tenant and
+reused to seed all three, so every real caller's key is exactly what
+Traefik will accept. Also creates an `adamastorx-ca` ConfigMap in the
+workload-generator namespace, mirroring the cluster's private CA root
+(cert-manager namespace's `adamastorx-root-ca` Secret) so that pod can
+verify api's Ingress certificate now that it calls it by public hostname
+instead of in-cluster Service DNS.
+
+Same idempotency rule as the stateful Secrets above: if `api-tenant-keys`
+already exists, the whole block is skipped (deliberately -- see the
+script's own comment for why a partial re-run can't safely recover a raw
+key from an existing htpasswd hash).
+
+**Rotating an api-tenant-keys key**: not yet automated. Delete the four
+Secrets (`api-tenant-keys`, `workload-generator-api-key`,
+`clinvar-viewer-api-key`, and re-run the script) and roll the two
+consuming Deployments (`kubectl rollout restart`) so they pick up the new
+value -- `workload-generator`'s env var and `clinvar-viewer`'s mounted
+`config.js` are both read at pod start, not live-reloaded the way
+`workload-generator-config`'s rate ConfigMap is.
+
 ## Re-bootstrap from zero
 
 Given a fresh k3s cluster (provisioned via `../terraform/`):

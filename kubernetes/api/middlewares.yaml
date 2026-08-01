@@ -1,0 +1,108 @@
+# Traefik middleware chain enforcing backlog #56's cross-cutting concern
+# (auth, per-key rate limiting) at the edge -- api's Ingress
+# (../api/ingress.yaml) references all three, in this order, via
+# `traefik.ingress.kubernetes.io/router.middlewares`. This deliberately
+# does NOT resurrect `gateway` (ADR 0021/0022): no new service, no new
+# image, no new pipeline -- these are Traefik CRDs the cluster's existing
+# ingress controller already understands (confirmed live against the real
+# cluster: `middlewares.traefik.io/v1alpha1` is already registered, chart
+# `traefik` 41.0.2 / image v3.7.6, no plugin or Traefik Hub feature
+# needed). See docs/adr/0027 in the adamastorx repo for the full
+# decision record satisfying ADR 0021's stated reintroduction condition.
+#
+# Order matters -- middlewares run left to right as listed on the
+# Ingress annotation:
+#   1. api-cors    -- MUST run first. Traefik's own `headers` middleware
+#      short-circuits and answers a browser's CORS preflight (OPTIONS)
+#      request directly, before any later middleware ever sees it.
+#      Without this, api-key-auth below would reject clinvar-viewer's
+#      preflight (which never carries credentials by spec) with a 401,
+#      breaking every cross-origin call from clinvar-viewer's browser
+#      page regardless of whether its real request carries a valid key.
+#      Confirmed live: an OPTIONS request with
+#      Access-Control-Request-Headers: authorization got a real 200 with
+#      the right access-control-* headers, answered by this middleware
+#      alone, never reaching api-key-auth.
+#   2. api-key-auth -- HTTP Basic auth as the API-key mechanism (the AC's
+#      "or equivalent"). One tenant = one htpasswd username:hash line in
+#      the api-tenant-keys Secret (platform/bootstrap/
+#      create-stateful-secrets.sh) -- this is what "API-key (or
+#      equivalent) authentication ... keys managed as real Kubernetes
+#      Secrets" means concretely here. Confirmed live: no
+#      Authorization header -> 401 www-authenticate: Basic; a valid
+#      tenant:key -> the request reaches api and gets a real response;
+#      a wrong password for a real tenant -> 401.
+#   3. api-key-ratelimit -- per-key (sourceCriterion on the Authorization
+#      header, so each distinct tenant:key pair gets its own bucket),
+#      not per-IP or global. Runs after auth so an unauthenticated
+#      flood is rejected 401 before ever consuming a real tenant's rate
+#      budget. Confirmed live: a 20-30 request burst against one real
+#      key produced a real mix of 200s and 429s (Retry-After: 1,
+#      X-Retry-In present), while a concurrent different key was
+#      unaffected (separate bucket).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-cors
+  namespace: api
+spec:
+  headers:
+    accessControlAllowMethods:
+      - GET
+      - POST
+      - OPTIONS
+    # Authorization is not CORS-safelisted (this is the whole reason a
+    # preflight happens at all once app.js starts sending it) -- must be
+    # explicitly allowed here or the browser blocks the real request
+    # even after a successful preflight.
+    accessControlAllowHeaders:
+      - Authorization
+      - Content-Type
+      - Accept
+    # clinvar-viewer is still the only real cross-origin caller of api
+    # (VariantLookupController's own @CrossOrigin is scoped the same
+    # way, ADR 0021) -- matching that origin here, not a wildcard.
+    accessControlAllowOriginList:
+      - https://clinvar-viewer.local.adamastorx.test
+    accessControlMaxAge: 600
+    addVaryHeader: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-key-auth
+  namespace: api
+spec:
+  basicAuth:
+    secret: api-tenant-keys
+    # Leave the Authorization header intact rather than stripping it --
+    # api itself never reads it today, but there's no reason to make a
+    # future api-side change (e.g. logging the authenticated tenant) any
+    # harder than it needs to be by discarding the information here.
+    removeHeader: false
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-key-ratelimit
+  namespace: api
+spec:
+  rateLimit:
+    # 5 req/s average, burst 10, per distinct Authorization header value
+    # (i.e. per tenant:key pair -- Traefik's sourceCriterion has no
+    # notion of "the basic-auth username" specifically, only the raw
+    # header, which is equivalent here since each tenant's key is
+    # unique). Documented, not tuned from a real traffic distribution
+    # this project doesn't have: workload-generator's own peak is
+    # target_rps=0.5 (platform/kubernetes/workload-generator/
+    # configmap.yaml) and clinvar-viewer is a single manually-driven
+    # browser tab -- 5/s comfortably covers both real callers' normal
+    # use with headroom, while staying low enough to reach 429 with a
+    # deliberate handful-of-seconds curl burst for live verification,
+    # same "simple v1 pick for this project's actual traffic" reasoning
+    # ADR 0020's alert thresholds already use. Revisit if a real caller's
+    # legitimate steady-state rate ever approaches it.
+    average: 5
+    burst: 10
+    sourceCriterion:
+      requestHeaderName: Authorization

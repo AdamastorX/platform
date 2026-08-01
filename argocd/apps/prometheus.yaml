@@ -160,6 +160,34 @@ spec:
             metrics_path: /actuator/prometheus
             static_configs:
               - targets: ['watchlist-service.watchlist.svc.cluster.local:80']
+          # traefik (backlog #56): a seventh target, for the
+          # api-key-auth/api-key-ratelimit Traefik middleware's own
+          # rejections (401/429) -- these never reach api's backend, so
+          # they only ever show up in Traefik's own metrics, not api's
+          # http_server_requests_seconds_count. Pod-role discovery, not a
+          # static target: the "traefik" Service (argocd/apps/traefik.yaml)
+          # only exposes web/websecure (80/443), no metrics port -- same
+          # "no stable Service DNS for this port" reasoning already used
+          # for workers above, applied to a different chart's own port
+          # layout. metrics.prometheus is already enabled by this chart's
+          # own defaults (confirmed live: the running pod's args already
+          # include --metrics.prometheus=true and
+          # --entryPoints.metrics.address=:9100/tcp with no explicit
+          # values.yaml change needed) -- the pod exposes 4 named
+          # container ports (metrics/traefik/web/websecure); the
+          # relabel_configs below keep only the "metrics" one so this job
+          # doesn't also try (and fail) to scrape /metrics off the
+          # web/websecure/dashboard ports.
+          - job_name: traefik
+            metrics_path: /metrics
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['traefik']
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_container_port_name]
+                regex: metrics
+                action: keep
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
@@ -234,6 +262,18 @@ spec:
         #     ntfy_topic is reachable/correct; other subscribers' fan-out
         #     is unaffected by design (ADR 0026), so this is never an
         #     "everything is down" page.
+        #   ApiRateLimitRejectionsHigh (backlog #56): the api-key-ratelimit
+        #     Traefik middleware is sustained-rejecting a real share of
+        #     requests with 429 -- check whether a specific tenant's key
+        #     is legitimately over its 5 req/s budget (kubernetes/api/
+        #     middlewares.yaml) or something is retrying too aggressively;
+        #     this fires on the shared `websecure` entrypoint (every
+        #     public Ingress host), not api specifically, since Traefik's
+        #     own metrics don't carry a per-router/per-tenant label here
+        #     (stated gap, see docs/adr/0027 in the adamastorx repo) --
+        #     today api is the only route with rate limiting, so in
+        #     practice it is api-specific, but that stops being true the
+        #     moment a second Ingress gets its own rate limit.
         serverFiles:
           alerting_rules.yml:
             groups:
@@ -419,6 +459,28 @@ spec:
                     annotations:
                       summary: "watchlist-service has dead-lettered subscriber notifications"
                       description: "watchlist_delivery_dlq_depth has been above 0 for 5m -- at least one subscriber's ntfy target has permanently failed delivery after app.delivery.max-attempts retries. See ADR 0020's SLO table and ADR 0026 (outbox-table-plus-relay)."
+                  # backlog #56. Real threshold, not invented: >0.2 req/s
+                  # sustained is roughly one rejection every 5s, well
+                  # above what either real caller's normal, correctly-
+                  # keyed traffic should ever produce against a 5 req/s
+                  # budget (middlewares.yaml) -- a live 20-30 request
+                  # burst during this item's own development produced a
+                  # real, momentary spike far above this before settling
+                  # back to 0, confirming the threshold doesn't fire on
+                  # ordinary single-digit-request bursts. `or vector(0)`:
+                  # same real bug this project already hit once on
+                  # api's own AnalysisTemplate (platform#65) -- an empty
+                  # vector before this cluster's first-ever 429 would
+                  # otherwise make the expression itself fail to
+                  # evaluate, not just read as "no alert".
+                  - alert: ApiRateLimitRejectionsHigh
+                    expr: (sum(rate(traefik_entrypoint_requests_total{code="429",entrypoint="websecure"}[5m])) or vector(0)) > 0.2
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "Traefik is sustained-rejecting requests with 429 (rate limit)"
+                      description: "traefik_entrypoint_requests_total{code=\"429\"} on the websecure entrypoint has averaged over 0.2/s for 5m. See kubernetes/api/middlewares.yaml's api-key-ratelimit for the per-tenant budget and docs/adr/0027 (adamastorx repo) for why this is entrypoint-wide rather than per-tenant today."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus

@@ -51,6 +51,41 @@ spec:
               enabled: false
             ingressEndpoint:
               ip: 192.168.1.10
+        # backlog #56: per-key request-rate visibility. Traefik's own
+        # Prometheus metrics (metrics.prometheus below) have no header/
+        # basic-auth-username label by design (real cardinality-explosion
+        # guard on Traefik's part -- one label per distinct source would
+        # scale metric cardinality with the number of tenants, unbounded),
+        # so "per-key request rates" can't come from a Prometheus counter
+        # here at all, not just a config oversight. Access logs carry it
+        # instead: Traefik's JSON access log includes a `ClientUsername`
+        # field for any Basic-auth-protected route (confirmed against
+        # this exact chart/version's own schema -- see
+        # v41.0.2/traefik/values.yaml's accessLog block -- before adding
+        # this, not assumed), which Alloy already ships to Loki for every
+        # container's stdout (ADR 0013) with no extra wiring. The
+        # dashboard panel querying it: argocd/apps/grafana.yaml.
+        #
+        # Chart default is accessLog.enabled: false -- confirmed live
+        # against the running pod's own args before this change (no
+        # --accesslog flag present). Enabling it (like any values change
+        # to this chart) triggers the RollingUpdate above -- brief,
+        # already-accepted downtime (maxSurge: 0 can't schedule a surge
+        # pod on this single node's bound hostPorts), same tradeoff every
+        # prior Traefik values/version bump on this cluster has taken.
+        accessLog:
+          enabled: true
+          format: json
+        # addRoutersLabels (default false): without this, 429/401 counts
+        # only ever show up on the shared `websecure` entrypoint metric
+        # (every public host), not attributable to api's router
+        # specifically once a second Ingress ever gets its own rate
+        # limit -- flipped on so that becomes possible without another
+        # chart-values change later. addServicesLabels/addEntryPointsLabels
+        # already default true; left alone.
+        metrics:
+          prometheus:
+            addRoutersLabels: true
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik
