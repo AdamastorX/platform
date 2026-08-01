@@ -12,6 +12,18 @@
 # whoami's ever was; the Deployment's readinessProbe already accounts
 # for this with initialDelaySeconds: 20, but a freshly-rolled pod may
 # still take longer to pass than whoami ever did.
+#
+# backlog #56: every request through this Ingress now runs the
+# api-cors -> api-key-auth -> api-key-ratelimit Traefik middleware chain
+# (./middlewares.yaml) -- per-tenant API-key auth and per-key rate
+# limiting enforced at the edge, per ADR 0021's stated reintroduction
+# condition ("using Traefik middleware ... is a deliberate future
+# decision"), not a resurrected `gateway`. Order in the annotation value
+# is execution order; see middlewares.yaml's own header comment for why
+# that order is load-bearing. Proven live before this PR (both
+# directions -- see PR description): unauthenticated request -> 401,
+# valid key -> 200, browser CORS preflight -> answered without a key
+# (required, see middlewares.yaml), a real burst -> real 429s.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -21,6 +33,8 @@ metadata:
   annotations:
     # ingress-shim creates/renews the 'api-tls' Certificate for us.
     cert-manager.io/cluster-issuer: adamastorx-ca
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      api-api-cors@kubernetescrd,api-api-key-auth@kubernetescrd,api-api-key-ratelimit@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

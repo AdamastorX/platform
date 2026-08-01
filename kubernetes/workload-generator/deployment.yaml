@@ -34,18 +34,44 @@ spec:
           # needs a one-line follow-up bump to the real merged SHA before
           # ArgoCD can sync successfully -- called out explicitly so it
           # isn't a silent post-merge surprise.
-          image: ghcr.io/adamastorx/workload-generator:206478af0811ff7511843053c664bda5604cab3b
+          # backlog #56: bump this SHA together with the code change in
+          # services#<PR> that adds the Authorization header
+          # (generator/client.py) -- this manifest's API_BASE_URL/API_KEY
+          # below only work against that build. See this PR's description
+          # for the merge-order note (services PR + image bump land
+          # before this Ingress's auth middleware is enforced).
+          image: ghcr.io/adamastorx/workload-generator:23a6f1d3ca636e3ba198f497fb1d6769507c28d2
           env:
-            # In-cluster Kubernetes Service DNS (same pattern
-            # clinvar-service.base-url uses in services/api's
-            # application.yml) -- this is an internal, always-on
-            # workload, not a client of the public Ingress hostname.
+            # backlog #56: switched from the in-cluster Service DNS this
+            # used before (http://api.api.svc.cluster.local) to api's
+            # public Ingress hostname, over HTTPS -- so this generator's
+            # synthetic traffic is subject to the same edge auth/rate
+            # limiting as every other public caller and attributable by
+            # its own key there too, not only via the traffic_source
+            # metric label. hostAliases below resolves this hostname
+            # in-cluster (no public DNS, ADR 0004/cert-manager-issuers/
+            # README.md) to the node's real IP -- the same
+            # 192.168.1.10 already used as Traefik's own
+            # providers.kubernetesIngress.ingressEndpoint.ip
+            # (argocd/apps/traefik.yaml) and reachable from any pod on
+            # this single-node cluster the same way a LAN client reaches
+            # it.
             - name: API_BASE_URL
-              value: http://api.api.svc.cluster.local
+              value: https://api.local.adamastorx.test
             - name: CONFIG_PATH
               value: /etc/workload-generator/config.json
             - name: HEARTBEAT_PATH
               value: /tmp/workload-generator-heartbeat
+            # This tenant's own key (backlog #56 AC) -- sourced from a
+            # real Secret via secretKeyRef, never hardcoded here.
+            # Provisioning: bootstrap/create-stateful-secrets.sh.
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: workload-generator-api-key
+                  key: api-key
+            - name: CA_BUNDLE_PATH
+              value: /etc/workload-generator/ca/ca.crt
           # No ports -- this component makes only outbound calls (backend-
           # engineer.md/platform-engineer.md's "simplest thing that works"
           # AC allowance: a container running a script). Health is a
@@ -107,7 +133,33 @@ spec:
             - name: config
               mountPath: /etc/workload-generator
               readOnly: true
+            # backlog #56: the project's private CA root, mirrored into
+            # this namespace by the bootstrap script (it's public data,
+            # a ConfigMap not a Secret -- see that script's own comment)
+            # so `requests` can verify api's Ingress certificate instead
+            # of either failing closed or skipping verification.
+            - name: ca-bundle
+              mountPath: /etc/workload-generator/ca
+              readOnly: true
+      # backlog #56: api.local.adamastorx.test has no public DNS record
+      # (ADR 0004) -- it only ever resolved via a client's own
+      # /etc/hosts or --resolve flag (cert-manager-issuers/README.md).
+      # In-cluster, CoreDNS has no record for it either, so this pod
+      # needs its own static mapping to actually reach the hostname it
+      # now authenticates and connects to by name (required for correct
+      # TLS SNI/hostname verification against the CA-issued cert -- see
+      # ca-bundle above). Same real node IP Traefik itself is configured
+      # with (argocd/apps/traefik.yaml's ingressEndpoint.ip); reachable
+      # from any pod on this single-node cluster via hostPort 80/443 the
+      # same way an external LAN client reaches it.
+      hostAliases:
+        - ip: "192.168.1.10"
+          hostnames:
+            - "api.local.adamastorx.test"
       volumes:
         - name: config
           configMap:
             name: workload-generator-config
+        - name: ca-bundle
+          configMap:
+            name: adamastorx-ca

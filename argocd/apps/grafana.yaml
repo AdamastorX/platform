@@ -802,6 +802,128 @@ spec:
                     }
                   ]
                 }
+            edge-auth-rate-limiting:
+              json: |
+                {
+                  "uid": "edge-auth-rate-limiting",
+                  "title": "api — Edge Auth & Rate Limiting (backlog #56)",
+                  "description": "Traefik-middleware auth/rate-limiting on api's public Ingress (kubernetes/api/middlewares.yaml), not api's own golden signals -- a 401/429 rejection here never reaches api's pod at all, so it's invisible to api-golden-signals. Panels 1-2 (Prometheus, traefik_entrypoint_requests_total) are entrypoint-wide (every public Ingress host shares the websecure entrypoint), not api-specific by label -- stated gap, see docs/adr/0027 in the adamastorx repo; in practice api is the only rate-limited route today. Panel 3 (Loki, Traefik's JSON access log ClientUsername field) is the per-key breakdown Prometheus's own metrics can't carry without an unbounded per-tenant label -- requires accessLog.enabled (argocd/apps/traefik.yaml) to actually have data; schema-verified against the real chart's values.yaml before adding, not independently re-confirmed live against a populated Loki this session -- see this item's PR description.",
+                  "tags": [
+                    "golden-signals",
+                    "api",
+                    "traefik"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Rate-limit rejections (429) -- websecure entrypoint",
+                      "description": "Same expression ApiRateLimitRejectionsHigh alerts on (argocd/apps/prometheus.yaml). Confirmed live during this item's development: a real 20-30 request burst against one tenant key produced a real, observed spike here.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(traefik_entrypoint_requests_total{code=\"429\",entrypoint=\"websecure\"}[$__rate_interval]))",
+                          "legendFormat": "429 rejections/s"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "Auth rejections (401) -- websecure entrypoint",
+                      "description": "Missing/wrong key at api-key-auth. Confirmed live: an unauthenticated request against api's protected Ingress produced a real, observed 401 here.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(traefik_entrypoint_requests_total{code=\"401\",entrypoint=\"websecure\"}[$__rate_interval]))",
+                          "legendFormat": "401 rejections/s"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "title": "Per-key request rate (authenticated calls to api, by tenant)",
+                      "description": "Traefik's JSON access log ClientUsername field, one line per completed request through a Basic-auth-protected router -- the per-tenant breakdown Prometheus's own metrics deliberately don't carry (cardinality). Needs accessLog.enabled: true (argocd/apps/traefik.yaml, backlog #56) to have any data -- not independently live-verified against a populated Loki this session, see PR description.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 24,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "loki",
+                        "uid": "loki"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "loki",
+                            "uid": "loki"
+                          },
+                          "expr": "sum by (ClientUsername) (rate({namespace=\"traefik\"} | json | ClientUsername != \"\" [$__interval]))",
+                          "legendFormat": "{{ClientUsername}}"
+                        }
+                      ]
+                    }
+                  ]
+                }
   destination:
     server: https://kubernetes.default.svc
     namespace: grafana

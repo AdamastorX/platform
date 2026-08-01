@@ -8,7 +8,13 @@
 # the same drift class already confirmed for Postgres -- and extended again
 # here to watchlist-postgresql, backlog #53, the same pattern applied fresh
 # to a new Postgres instance rather than reinvented) instead of letting the
-# chart generate one itself.
+# chart generate one itself. Extended a third time by backlog #56 (see
+# that section, near the bottom): the same out-of-band-Secret mechanism,
+# applied to a different problem (per-tenant API keys for Traefik's
+# api-key-auth middleware, not a stateful chart's DB credential) rather
+# than inventing a second one, per that item's own AC ("reconciled with
+# whatever #36 settles on for secret provisioning, not a second competing
+# mechanism").
 #
 # Why this exists (the tradeoff platform#36 decided):
 #
@@ -83,8 +89,27 @@ create_secret() {
   kubectl create secret generic "$name" -n "$ns" "$@"
 }
 
+create_configmap() {
+  local name=$1 ns=$2
+  shift 2
+  if kubectl get configmap "$name" -n "$ns" >/dev/null 2>&1; then
+    echo "==> configmap/$name (ns $ns) already exists -- leaving it untouched"
+    return
+  fi
+  echo "==> creating configmap/$name (ns $ns)"
+  kubectl create configmap "$name" -n "$ns" "$@"
+}
+
 gen_password() {
   openssl rand -base64 24
+}
+
+# backlog #56: a real per-tenant API key -- 24 random bytes, hex-encoded
+# (not base64: this value also gets embedded verbatim in a JS string
+# literal for clinvar-viewer's config.js below, and hex has no characters
+# that need escaping there, unlike base64's +/=).
+gen_api_key() {
+  openssl rand -hex 24
 }
 
 # Kafka's KRaft cluster-id/controller-N-id are base64url-encoded 16-byte
@@ -103,6 +128,13 @@ create_ns clinvar
 create_ns kafka
 create_ns grafana
 create_ns watchlist
+# backlog #56: workload-generator/clinvar-viewer already exist on an
+# already-bootstrapped cluster (their own Applications create them via
+# CreateNamespace=true), but this script must also work against a fresh
+# cluster where root-app.yaml hasn't synced anything yet -- same
+# reasoning as every create_ns call above.
+create_ns workload-generator
+create_ns clinvar-viewer
 
 echo "==> postgresql (api namespace)"
 # Keys match the chart's auth.secretKeys defaults (adminPasswordKey,
@@ -147,4 +179,92 @@ create_secret watchlist-postgresql watchlist \
   --from-literal=postgres-password="$(gen_password)" \
   --from-literal=password="$(gen_password)"
 
-echo "==> Done. All 6 stateful Secrets present."
+echo "==> api-tenant-keys (backlog #56: per-tenant API keys + rate limiting at the edge)"
+# Traefik's api-key-auth Middleware (kubernetes/api/middlewares.yaml)
+# reads this Secret directly as an htpasswd file (its `users` key, one
+# `username:apr1-hash` line per tenant) -- that Secret is the actual
+# source of truth Traefik checks against. The *raw* keys are generated
+# here and immediately reused below to seed each tenant's own
+# consuming Secret (workload-generator-api-key, clinvar-viewer-api-key)
+# so every real caller gets exactly the same value Traefik will accept
+# -- never persisted to disk, never logged, held only in these shell
+# variables for the remainder of this script's single run.
+#
+# Idempotent like every Secret above, with one added wrinkle: if
+# api-tenant-keys already exists but workload-generator-api-key/
+# clinvar-viewer-api-key (in their own namespaces) do not, this script
+# cannot recover the already-committed raw keys from the htpasswd hash
+# (one-way by design) -- create_secret's per-Secret skip-if-exists still
+# does the right thing (leaves api-tenant-keys alone, would silently
+# create the per-tenant Secret with a *new* key that Traefik doesn't
+# recognize). Real fresh-cluster bootstrap runs this whole block once,
+# together; this edge case is a rotation scenario, not a bootstrap one
+# -- see bootstrap/README.md's "Rotating an api-tenant-keys key" section.
+if kubectl get secret api-tenant-keys -n api >/dev/null 2>&1; then
+  echo "==> secret/api-tenant-keys (ns api) already exists -- leaving it and its dependent tenant Secrets untouched"
+else
+  clinvar_viewer_key="$(gen_api_key)"
+  workload_generator_key="$(gen_api_key)"
+  # Not consumed by any app -- a standing tenant purely for a human to
+  # `curl -u smoke-test:<key>` against api's Ingress post-merge (the
+  # live 401/200/429 proof this item's PR ran during development) without
+  # touching either real app's own key or its rate-limit bucket.
+  # Printed once below; not stored anywhere else, so write it down.
+  smoke_test_key="$(gen_api_key)"
+
+  htpasswd_body="$(printf 'clinvar-viewer:%s\nworkload-generator:%s\nsmoke-test:%s\n' \
+    "$(openssl passwd -apr1 "$clinvar_viewer_key")" \
+    "$(openssl passwd -apr1 "$workload_generator_key")" \
+    "$(openssl passwd -apr1 "$smoke_test_key")")"
+
+  echo "==> creating secret/api-tenant-keys (ns api)"
+  kubectl create secret generic api-tenant-keys -n api \
+    --from-literal=users="$htpasswd_body"
+  echo "==> smoke-test tenant key (write this down, it is not stored anywhere): $smoke_test_key"
+
+  echo "==> creating secret/workload-generator-api-key (ns workload-generator)"
+  kubectl create secret generic workload-generator-api-key -n workload-generator \
+    --from-literal=api-key="$workload_generator_key"
+
+  # clinvar-viewer has no backend of its own (static nginx, no build
+  # step -- see services/clinvar-viewer/Dockerfile) to inject a key at
+  # request time, so this Secret's payload is the literal JS file its
+  # Deployment mounts straight into nginx's html directory as config.js
+  # (kubernetes/clinvar-viewer/deployment.yaml), not just the raw key.
+  # Stated plainly, same as the comment in services/clinvar-viewer/
+  # app.js: a key shipped inside a page any browser can view-source is
+  # not a confidentiality boundary -- it still does real per-tenant
+  # attribution/rate-limiting work at the edge, which is what this item
+  # actually needs from it.
+  echo "==> creating secret/clinvar-viewer-api-key (ns clinvar-viewer)"
+  kubectl create secret generic clinvar-viewer-api-key -n clinvar-viewer \
+    --from-literal=config.js="window.ADAMASTORX_API_KEY = \"${clinvar_viewer_key}\";"
+
+  unset clinvar_viewer_key workload_generator_key smoke_test_key htpasswd_body
+fi
+
+echo "==> adamastorx-ca ConfigMap mirror into workload-generator namespace (backlog #56)"
+# workload-generator now calls api's public Ingress hostname over HTTPS
+# (kubernetes/workload-generator/deployment.yaml) instead of the
+# in-cluster Service DNS it used before -- that Ingress serves a
+# certificate signed by this cluster's private CA (kubernetes/
+# cert-manager-issuers/README.md), not a publicly-trusted one, so the
+# generator's own `requests` calls need this root to verify against. The
+# root cert is public data (it's *literally already served* to every
+# TLS client that connects), not a secret -- a ConfigMap, not a Secret,
+# mirroring the same real distinction the rest of this project draws
+# between the two (credentials vs. non-sensitive config). Copied from
+# the cert-manager namespace's Secret (cert-manager doesn't publish it
+# as a ConfigMap itself) rather than committing the cert bytes to git,
+# since a fresh cluster's root CA is generated fresh each time
+# (cert-manager-issuers/bootstrap-ca.yaml) and would go stale in git
+# immediately.
+if kubectl get secret adamastorx-root-ca -n cert-manager >/dev/null 2>&1; then
+  ca_crt="$(kubectl get secret adamastorx-root-ca -n cert-manager -o jsonpath='{.data.ca\.crt}' | base64 -d)"
+  create_configmap adamastorx-ca workload-generator --from-literal=ca.crt="$ca_crt"
+  unset ca_crt
+else
+  echo "==> adamastorx-root-ca Secret not found in cert-manager namespace yet -- skipping (re-run this script after cert-manager-issuers' Application has synced)"
+fi
+
+echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror additions) present."
