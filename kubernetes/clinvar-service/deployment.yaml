@@ -39,6 +39,18 @@ spec:
           volumeMounts:
             - name: pyroscope-deps
               mountPath: /pyroscope-deps
+          # backlog #57 fix: found live -- same real "failed quota"
+          # FailedCreate api's own Rollout hit (see rollout.yaml's
+          # matching comment). clinvar's namespace ResourceQuota also
+          # sets a memory quota, requiring every container's own
+          # requests.memory/limits.memory explicitly.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
       containers:
         - name: clinvar-service
           # Image tag is the services repo's commit SHA (ADR 0008/0009,

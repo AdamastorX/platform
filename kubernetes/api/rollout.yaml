@@ -114,6 +114,22 @@ spec:
           volumeMounts:
             - name: pyroscope-agent
               mountPath: /pyroscope-agent
+          # backlog #57 fix: found live -- api's namespace ResourceQuota
+          # (kubernetes/api/resourcequota.yaml) sets a memory quota, which
+          # requires every container (init containers included) to
+          # specify its own requests.memory/limits.memory explicitly --
+          # the namespace's LimitRange only auto-defaults CPU, not memory
+          # (kubernetes/api/limitrange.yaml). Omitting this blocked the
+          # entire Rollout with a real "failed quota" FailedCreate,
+          # confirmed live via `kubectl describe rollout api -n api`.
+          # Small and fixed: this container does one `curl` and exits.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       containers:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
