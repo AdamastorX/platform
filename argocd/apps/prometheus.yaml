@@ -188,6 +188,34 @@ spec:
               - source_labels: [__meta_kubernetes_pod_container_port_name]
                 regex: metrics
                 action: keep
+          # KEDA (backlog #63): scaling-decision visibility for the new
+          # `workers` ScaledObject (kubernetes/workers/scaledobject.yaml).
+          # Same shape as Traefik above -- no stable Service DNS for the
+          # metrics port specifically (keda-operator's own Service fronts
+          # its gRPC metrics-service port 9666, not 8080), so pod-role
+          # discovery filtered to the "metrics" container port name,
+          # which argocd/apps/keda.yaml's prometheus.operator.enabled:
+          # true adds to the operator pod (confirmed against the real
+          # chart's templates/manager/deployment.yaml before writing
+          # this, not assumed). Picks up both keda-operator and
+          # keda-operator-metrics-apiserver pods -- the metrics-apiserver
+          # process exposes the same-named port unconditionally (chart's
+          # own metrics-server/deployment.yaml), independent of the
+          # prometheus.metricServer.enabled toggle this project leaves
+          # off. keda_scaler_metrics_value/keda_scaler_active (the real
+          # scale-decision signal) are recorded from
+          # pkg/scaling/scale_handler.go, which only the operator process
+          # runs -- confirmed against KEDA 2.20.2's real source before
+          # relying on it, not assumed from the metric name alone.
+          - job_name: keda
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['keda']
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_container_port_name]
+                regex: metrics
+                action: keep
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
@@ -246,6 +274,19 @@ spec:
         #   WorkersConsumerLagHigh: workers is falling behind
         #     work-items' production rate -- check if the pod is even
         #     running/consuming at all before assuming it's just slow.
+        #     Backlog #63: KEDA's ScaledObject
+        #     (kubernetes/workers/scaledobject.yaml) now reacts to the
+        #     same underlying lag first, at a much lower threshold (50
+        #     vs. this rule's 500) by adding consumers -- this rule
+        #     firing means KEDA's own reaction did not resolve it in
+        #     time (every partition already has a consumer and lag is
+        #     still climbing, a downstream dependency is stuck, or this
+        #     node's real CPU pressure kept an extra replica from ever
+        #     reaching Ready). Not a duplicate signal: KEDA is the
+        #     automatic first responder, this alert is the human-paging
+        #     backstop for when that response wasn't enough -- the two
+        #     thresholds are deliberately far apart so the common case
+        #     (KEDA fixes it) never reaches this rule's 10m window.
         #   WorkersConsumerMissing: workers isn't reporting a consumer-lag
         #     metric at all (backlog #76) -- this is the "the pod is even
         #     running" check the rule above tells you to do by hand, now
@@ -254,7 +295,15 @@ spec:
         #     self-reported by workers' own JVM, so it goes completely
         #     dark -- not a high number, no series at all -- exactly when
         #     the consumer is fully stopped, which is the one case
-        #     WorkersConsumerLagHigh structurally cannot catch.
+        #     WorkersConsumerLagHigh structurally cannot catch. Backlog
+        #     #63: this is also exactly why KEDA's ScaledObject
+        #     (kubernetes/workers/scaledobject.yaml) deliberately does
+        #     NOT use scale-to-zero -- minReplicaCount stays 1, with the
+        #     reason stated in that file -- zero replicas would make this
+        #     rule fire on every ordinary idle-drain, not only a real
+        #     stuck-consumer incident, and there is no already-available
+        #     signal in this cluster (kube-state-metrics is disabled) to
+        #     tell the two apart yet.
         #   ClinVarIngestionFreshnessBreach: no ClinVar ingestion job has
         #     reached status=succeeded in over a week (backlog #54: real
         #     job outcomes, not "an attempt happened") -- check the most

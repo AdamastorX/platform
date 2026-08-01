@@ -1,0 +1,149 @@
+# KEDA event-driven autoscaling for `workers` on real Kafka consumer-
+# group lag (backlog #63). Requires the `keda` Application's CRDs
+# (argocd/apps/keda.yaml) to exist first -- see that file's own comment
+# on first-install sync ordering.
+#
+# Native `kafka` scaler, not a Prometheus-backed trigger (KEDA also
+# ships a generic `prometheus` scaler type) -- deliberate choice, not
+# the only option:
+#
+# - The `kafka` scaler queries the broker's own __consumer_offsets
+#   directly via a Sarama client (confirmed against KEDA 2.20.2's real
+#   docs and this is the same mechanism `kafka-consumer-groups.sh
+#   --describe` uses, not assumed) -- the exact same source of truth
+#   `workers`' committed offsets already live in, independent of
+#   whether `workers` itself is running.
+# - The `prometheus` scaler would instead re-read
+#   kafka_consumer_fetch_manager_records_lag -- the metric chaos
+#   scenario 3 (observability/chaos/03-consumer-lag.md) found is
+#   self-reported by workers' own JVM (a Micrometer KafkaClientMetrics
+#   binder) and goes **completely dark**, not just stale, the moment
+#   `workers` has zero replicas (backlog #76's own finding: no scrape
+#   target, empty result set, not a large number). A ScaledObject that
+#   needed to scale *up from* zero replicas on that same metric would be
+#   trying to read a signal that cannot exist in exactly the state it's
+#   meant to react to -- structurally circular.
+# - The `kafka` scaler sidesteps that: it asks the broker for
+#   `workers`' consumer group's committed offset vs. each partition's
+#   latest offset, which the broker can always answer regardless of
+#   whether any `workers` pod is currently alive to report anything
+#   itself. This directly closes the re-check backlog #63's own
+#   acceptance criteria asks for (confirming, not assuming, that KEDA's
+#   scale-from-zero decision path avoids #76's blind spot) -- confirmed
+#   here against the real installed chart/scaler docs for this exact
+#   version, not assumed by scaler-type name alone.
+#
+# minReplicaCount is 1, NOT 0 -- scale-to-zero is explicitly NOT used
+# here, for a stated reason, per backlog #63's own AC: enabling it would
+# put `workers` at zero replicas during every ordinary idle-drain, not
+# only during a real incident. `WorkersConsumerMissing`
+# (argocd/apps/prometheus.yaml, backlog #76) fires on
+# absent(kafka_consumer_fetch_manager_records_lag{job="workers"}) with
+# no way today to distinguish "KEDA correctly scaled to zero, nothing to
+# do" from "the consumer is stuck down, a real incident" -- kube-state-
+# metrics is disabled in this cluster (prometheus.yaml), so there is no
+# already-available signal to gate that alert on ScaledObject/HPA state
+# instead. Shipping scale-to-zero today would make that alert fire on
+# every normal quiet period, exactly the "must not fight or double-
+# count" failure backlog #63's own AC calls out -- not fixed cleanly in
+# this change, so left disabled rather than shipped broken. A real
+# follow-up (gate WorkersConsumerMissing on KEDA's own
+# keda_scaled_object_paused / an "intentionally scaled to zero" signal,
+# scraped per this chart's own Prometheus metrics, argocd/apps/keda.yaml)
+# is the honest way to enable it later, not attempted here.
+#
+# maxReplicaCount is 3, matching work-items' own partition count (ADR
+# 0011) -- the kafka scaler's own default behaviour already caps
+# replicas at the partition count (allowIdleConsumers stays false, the
+# chart default), so 3 is both the natural ceiling and an explicit,
+# self-documenting value rather than relying on the implicit cap alone.
+#
+# Real, stated constraint carried over from argocd/apps/keda.yaml: this
+# node's CPU was already at 3935m/4000m allocatable (98%) requested
+# before this change, live-checked the same session this file was
+# written (see this backlog item's PR description). Each additional
+# `workers` replica needs another 250m CPU request
+# (kubernetes/workers/deployment.yaml) that this node may not actually
+# have room for right now -- KEDA computing a correct desired-replica
+# count is not the same thing as the scheduler being able to fulfil it,
+# and this file does not paper over that: if extra replicas sit Pending
+# under real lag, that is a real node-capacity finding to report
+# honestly, not a bug in this ScaledObject.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: workers
+  namespace: workers
+spec:
+  scaleTargetRef:
+    name: workers
+  # Chart/scaler defaults; stated explicitly rather than left implicit.
+  # 30s polling matches the kafka scaler's own package default -- no
+  # reason to poll faster on a dev cluster with a 10m-sustained alert
+  # threshold anyway. 120s cooldown (chart default is 300s) is
+  # deliberately shorter: this cluster's real traffic is a handful of
+  # messages per session (workload-generator's default target_rps: 0.5,
+  # #45), so a real backlog drains in well under a minute once extra
+  # consumers join (chaos scenario 3 observed a real catch-up burst
+  # inside seconds) -- 300s would hold extra replicas (and their CPU
+  # request) long after the work is actually done, competing with an
+  # already CPU-tight node for no benefit.
+  pollingInterval: 30
+  cooldownPeriod: 120
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.kafka.svc.cluster.local:9092
+        # == spring.application.name (services/workers/src/main/
+        # resources/application.yml's own group-id, confirmed against
+        # the real source, not assumed).
+        consumerGroup: workers
+        topic: work-items
+        # Reconciling this against WorkersConsumerLagHigh
+        # (argocd/apps/prometheus.yaml: sum(...) > 500, for: 10m) --
+        # the two must not fight or double-count (backlog #63's own AC).
+        # The relationship: KEDA is the first responder, the alert is
+        # the backstop. lagThreshold: 50 means KEDA starts adding
+        # replicas (ceil(totalLag / 50), capped at maxReplicaCount)
+        # an order of magnitude below the alert's 500-record bar --
+        # under normal conditions the extra consumers should drain the
+        # backlog well before 10 sustained minutes at 500+ records ever
+        # elapses, so WorkersConsumerLagHigh firing at all is meant to
+        # signal KEDA could NOT fix it in time (every partition already
+        # has a consumer and lag is still climbing, a downstream
+        # dependency is stuck, a poison message is blocking a partition,
+        # or -- the real, stated risk immediately above -- this node's
+        # CPU pressure kept the extra replica(s) from ever reaching
+        # Ready). The alert's own existing 10m/500 thresholds are left
+        # unchanged: they already describe "materially, sustainedly
+        # abnormal for this cluster's real traffic" independent of
+        # whichever mechanism is or isn't fixing it, so widening them
+        # to "account for KEDA" would weaken a real signal rather than
+        # reconcile one.
+        lagThreshold: '50'
+        # KEDA only starts scaling at all once total lag exceeds this
+        # (default 0 would activate on any lag > 0, which is noisy for
+        # normal single-message jitter at this cluster's real low
+        # traffic) -- 10 mirrors workers' own at-least-once,
+        # manual-ack processing model tolerating small, transient
+        # backlogs without reacting.
+        activationLagThreshold: '10'
+        # Matches workers' own spring.kafka.consumer.auto-offset-reset
+        # (services/workers/src/main/resources/application.yml) -- keeps
+        # KEDA's own lag computation consistent with what the real
+        # consumer would do on a first-ever run / expired-offset edge
+        # case, not a mismatched assumption.
+        offsetResetPolicy: earliest
+        # PLAINTEXT, no SASL (argocd/apps/kafka.yaml: no credential
+        # trust boundary crosses the workers/kafka namespace pair,
+        # ClusterIP-only broker, same no-auth-between-in-cluster-
+        # services model this cluster already uses) -- stated explicitly
+        # rather than relying on the scaler's own `none`/`disable`
+        # defaults, so a future SASL/TLS change to kafka.yaml has an
+        # obvious paired line to update here. No TriggerAuthentication
+        # resource exists for this reason -- there is no credential to
+        # hold.
+        sasl: none
+        tls: disable
