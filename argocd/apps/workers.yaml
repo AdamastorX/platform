@@ -19,9 +19,11 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: workers
+  # TEMPORARY, backlog #23 chaos scenario 3 (consumer-group lag):
+  # `automated` removed so a real `kubectl scale --replicas=0` outage
+  # window isn't reverted by selfHeal within seconds -- same precedent
+  # platform#53/#66 already established for postgresql. Restored via a
+  # follow-up PR once the scenario is done.
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
