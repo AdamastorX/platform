@@ -644,6 +644,181 @@ spec:
                     }
                   ]
                 }
+            workers-keda-autoscaling:
+              json: |
+                {
+                  "uid": "workers-keda-autoscaling",
+                  "title": "workers — KEDA Autoscaling (backlog #63)",
+                  "description": "Real replica count (from Prometheus's own already-scraped pod-role service discovery, argocd/apps/prometheus.yaml's `workers` job -- no kube-state-metrics needed, that's disabled in this cluster) alongside KEDA's own scale-decision signal (kubernetes/workers/scaledobject.yaml's kafka trigger). PromQL for the keda_scaler_* panels is built from KEDA 2.20.2's real source (pkg/metricscollector/prommetrics.go: metric namespace \"keda\", labels namespace/metric/scaledObject/scaler/triggerIndex/type) and argocd/apps/keda.yaml's own scrape config, not assumed from docs -- but NOT independently re-confirmed live against a running KEDA instance this session, since this backlog item's own PR is what first deploys KEDA to this cluster. See that PR's description for exactly what is and isn't live-verified.",
+                  "tags": [
+                    "golden-signals",
+                    "workers",
+                    "keda"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Replicas — real running/scraped workers pods",
+                      "description": "count(up{job=\"workers\"} == 1) -- the actual number of workers pods Prometheus's own pod-role service discovery currently sees Up, the direct real-scale-out/scale-in proof this backlog item's AC asks for. Not KEDA's own internal desired-replica state -- an independently observed count.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "min": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "count(up{job=\"workers\"} == 1)",
+                          "legendFormat": "running replicas"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "KEDA's own scaler metric value (Kafka consumer-group lag, as KEDA sees it)",
+                      "description": "keda_scaler_metrics_value{scaledObject=\"workers\"} -- the kafka scaler's own lag reading, queried directly from the broker's consumer-group offsets (pkg/scalers), independent of workers' own self-reported kafka_consumer_fetch_manager_records_lag (the metric WorkersConsumerLagHigh alerts on, and the one #76 found goes dark at zero replicas). Plotted alongside that existing metric below for a direct visual reconciliation of the two signals.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "min": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(keda_scaler_metrics_value{scaledObject=\"workers\"})",
+                          "legendFormat": "KEDA-observed lag"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(kafka_consumer_fetch_manager_records_lag{job=\"workers\"})",
+                          "legendFormat": "workers' own self-reported lag"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "title": "KEDA scaler active (is KEDA currently trying to scale beyond min)",
+                      "description": "keda_scaler_active{scaledObject=\"workers\"} -- 1 once totalLag exceeds activationLagThreshold (10, scaledobject.yaml), 0 otherwise.",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              { "color": "green", "value": null },
+                              { "color": "blue", "value": 1 }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "max(keda_scaler_active{scaledObject=\"workers\"})",
+                          "legendFormat": "scaler active"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 4,
+                      "title": "KEDA-derived desired replica count (lag / lagThreshold, capped)",
+                      "description": "ceil(KEDA-observed lag / lagThreshold=50), clamped to [minReplicaCount=1, maxReplicaCount=3] (scaledobject.yaml) -- an approximation of the kafka scaler's own internal replica math for visual comparison against panel 1's real observed count, not KEDA's own internal HPA-computed value directly (no kube-state-metrics in this cluster to read the HPA object's own .status.desiredReplicas from).",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "min": 0,
+                          "max": 3
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "clamp_max(clamp_min(ceil(sum(keda_scaler_metrics_value{scaledObject=\"workers\"}) / 50), 1), 3)",
+                          "legendFormat": "approx. desired replicas"
+                        }
+                      ]
+                    }
+                  ]
+                }
             watchlist-service-golden-signals:
               json: |
                 {

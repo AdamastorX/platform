@@ -8,8 +8,7 @@ spec:
   # 3-partition/3-replica rebalance captured (services#3 AC, ADR 0011):
   # scaling to 3 replicas assigned each one exactly one partition
   # (generation 6: work-items-0/1/2 -> one consumer each, real cluster,
-  # not the embedded-Kafka unit test). Back to 1 as the steady-state
-  # count for this small dev cluster.
+  # not the embedded-Kafka unit test).
   #
   # platform#35/#37 (ADR 0018) briefly gave workers a PVC and Postgres
   # access for ClinVar ingestion -- reverted here under ADR 0019, which
@@ -18,7 +17,24 @@ spec:
   # neither shareable across the api/workers namespace boundary) surfaced
   # deploying the original design. workers is back to being purely the
   # M2 work-items Kafka consumer; nothing below references ClinVar.
-  replicas: 1
+  #
+  # backlog #63: `replicas` is now deliberately ABSENT, not pinned to 1
+  # -- KEDA's ScaledObject (scaledobject.yaml, this directory) creates an
+  # HPA that writes this field directly, and this Application's
+  # syncPolicy.automated.selfHeal (workers.yaml) would otherwise fight
+  # every scale event: a git-tracked `replicas: 1` is a standing
+  # declaration ArgoCD keeps re-asserting, reverting KEDA's own scale-out
+  # within one reconcile the same way this project's chaos scenarios
+  # already proved selfHeal reverts any live, uncommitted `kubectl scale`
+  # (observability/chaos/03-consumer-lag.md). Omitting the field (not
+  # setting it to a sentinel value) is ArgoCD's own documented pattern
+  # for a Deployment under external replica control -- a 3-way-merge
+  # sync never touches a field that isn't in the applied manifest, so
+  # live replica count is left alone. The Deployment API still defaults
+  # a brand-new object to 1 replica with no ScaledObject controlling it
+  # yet (e.g. before KEDA's Application has synced on a fresh cluster),
+  # matching minReplicaCount: 1 in scaledobject.yaml, so first-install
+  # ordering doesn't leave workers at 0 replicas by accident either.
   selector:
     matchLabels:
       app: workers

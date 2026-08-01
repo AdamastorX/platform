@@ -9,6 +9,26 @@
 # clears that peak with headroom for a deploy to actually happen, not
 # just steady-state. Same shape gateway's namespace used before it was
 # removed (ADR 0021/backlog #S1); the numbers matched.
+#
+# backlog #63: KEDA's ScaledObject (scaledobject.yaml, this directory)
+# can now drive replicas up to 3 (maxReplicaCount, matching work-items'
+# partition count) on real Kafka consumer-group lag. Worst case is 3
+# KEDA-scaled replicas plus one extra during a rolling deploy's
+# maxSurge=1 overlapping in time -- 4 pods:
+#   requests.cpu:    4 * 250m = 1000m -- already exactly what "1" covered,
+#                    unchanged.
+#   requests.memory: 4 * 256Mi = 1024Mi -- already exactly what 1Gi
+#                    covered, unchanged.
+#   limits.cpu:      4 * 500m = 2000m -- the one real gap: the old
+#                    1500m only covered 3 pods' worth of limit, bumped
+#                    to 2000m below.
+#   limits.memory:   4 * 512Mi = 2048Mi -- already exactly what 2Gi
+#                    covered, unchanged.
+# This quota bounds the namespace; it does not guarantee the node can
+# actually schedule up to 4 pods concurrently -- see
+# argocd/apps/keda.yaml's own comment on this node's real, live-checked
+# CPU headroom (98% of allocatable already requested before this
+# change).
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -17,5 +37,5 @@ spec:
   hard:
     requests.cpu: "1"
     requests.memory: 1Gi
-    limits.cpu: 1500m
+    limits.cpu: 2000m
     limits.memory: 2Gi
