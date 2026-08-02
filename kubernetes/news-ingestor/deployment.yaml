@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: news-ingestor
+  labels:
+    app: news-ingestor
+spec:
+  # A plain Deployment, no KEDA ScaledObject -- this service is a
+  # single-threaded @Scheduled poller against two fixed feeds, not a
+  # partitioned Kafka consumer group `workers` scales replicas against.
+  # One replica is the whole steady-state shape (a second replica would
+  # just double-poll and double-publish the same articles, nothing to
+  # gain from horizontal scale here).
+  replicas: 1
+  selector:
+    matchLabels:
+      app: news-ingestor
+  template:
+    metadata:
+      labels:
+        app: news-ingestor
+    spec:
+      containers:
+        - name: news-ingestor
+          # Image tag is the services repo's commit SHA (ADR 0008/0009,
+          # same convention as api/workers/watchlist-service) -- bump this
+          # one line and open a PR to deploy a new build.
+          #
+          # No real tag exists yet: build-publish.yml only publishes an
+          # image on push to services' `main` (post-merge), and
+          # services#48 (the news-ingestor module itself) is still open,
+          # not merged, as of this PR. This deliberately-invalid
+          # placeholder tag (ArgoCD sync will fail to pull it) is a
+          # correctness backstop, not a real value -- swap it for the
+          # real ghcr.io/adamastorx/news-ingestor:<sha> once services#48
+          # merges and its build-publish run completes, immediately
+          # before this Deployment is actually synced live (M13's
+          # incremental, one-service-at-a-time rollout discipline; this
+          # platform PR does not deploy itself).
+          image: ghcr.io/adamastorx/news-ingestor:PENDING-services-48-merge
+          ports:
+            # No Kubernetes Service for this port (same ADR 0009/0011
+            # reasoning as workers: this service has no business HTTP
+            # API, the port exists solely so actuator's health probes
+            # below and Prometheus's pod-role scrape
+            # (argocd/apps/prometheus.yaml) have something to hit).
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.kafka.svc.cluster.local:9092
+            - name: OTLP_COLLECTOR_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
+          # Spring Boot Actuator health groups (application.yml enables
+          # management.endpoint.health.probes), same JVM cold-start
+          # budget as api/workers/watchlist-service.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          # Sized defensively (never run on this cluster before this PR)
+          # -- the same starting point watchlist-service/workers both
+          # began at before backlog #77's real `kubectl top pod` audit
+          # trimmed their requests down. Real current headroom checked
+          # live via `kubectl describe node` immediately before writing
+          # this (2026-08-02): 2295m/4000m (57%) CPU requested, ~1.7 free
+          # cores -- this request is a small, defensible fraction of that
+          # (250m, comparable to workers' own starting/current request),
+          # not sized against a number that will be stale by the time
+          # this actually deploys (M13's own stated incremental-rollout
+          # discipline: a fresh headroom check happens again immediately
+          # before this Deployment is actually live-synced, not assumed
+          # from this comment).
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
