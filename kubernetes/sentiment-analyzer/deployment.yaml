@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentiment-analyzer
+  labels:
+    app: sentiment-analyzer
+spec:
+  # One replica, explicit and pinned -- same reasoning
+  # market-data-ingestor's own deployment.yaml states for itself, applied
+  # here to a Kafka consumer group instead of a websocket subscription: a
+  # second replica joining consumer group "sentiment-analyzer" (one
+  # partition on news.article.published, ADR 0011's "no more partitions
+  # than a single producer/consumer pair needs yet" convention, see
+  # argocd/apps/kafka.yaml) would sit idle -- Kafka only ever hands a
+  # given partition to one group member at a time, so a second replica
+  # buys no throughput today. No KEDA ScaledObject for the same reason
+  # `workers` has one and this doesn't: workers' work-items topic has 3
+  # partitions and real, bursty synthetic load to scale against; this
+  # topic has 1 partition and this milestone's real traffic (a handful of
+  # matched articles per news-ingestor poll cycle) -- add both together
+  # if #80's consumer group ever actually needs the parallelism,
+  # matching the exact same "add partitions/replicas later, not
+  # speculatively now" note already left on news.article.published's own
+  # topic entry.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sentiment-analyzer
+  template:
+    metadata:
+      labels:
+        app: sentiment-analyzer
+    spec:
+      containers:
+        - name: sentiment-analyzer
+          # Image tag is the services repo's commit SHA (ADR 0008/0009,
+          # same convention as every other service here) -- bump this one
+          # line and open a PR to deploy a new build.
+          #
+          # This SHA (c404da1636127e704cf305a3ae5184d059322131) is
+          # services' feat/sentiment-analyzer branch HEAD (backlog #80)
+          # at the time this file was written, NOT yet a published image --
+          # build-publish.yml only builds+pushes
+          # ghcr.io/adamastorx/sentiment-analyzer on a push to services'
+          # own main (ADR 0008), which only happens once that PR is
+          # reviewed and merged. Same placeholder-tag pattern
+          # market-data-ingestor's own first-deploy manifest used
+          # (kubernetes/market-data-ingestor/deployment.yaml's git
+          # history) -- this Application is safe to review and merge on
+          # the platform side; ArgoCD syncing it before the image exists
+          # would just leave the pod ImagePullBackOff, not a wrong/broken
+          # image running, and this Application has no
+          # syncPolicy.automated anyway (see argocd/apps/sentiment-analyzer.yaml),
+          # so nothing auto-syncs it before a human bumps this tag to the
+          # real merged image and runs a fresh headroom check (M13's own
+          # incremental-rollout discipline).
+          image: ghcr.io/adamastorx/sentiment-analyzer:c404da1636127e704cf305a3ae5184d059322131
+          ports:
+            # No Kubernetes Service for this port (ADR 0009/0011, same as
+            # news-ingestor/market-data-ingestor/workers) -- this service
+            # has no business HTTP API for another service to call. It
+            # exists so /healthz (liveness/readiness) and /metrics
+            # (Prometheus, argocd/apps/prometheus.yaml's pod-role scrape)
+            # have something to hit.
+            - name: http
+              containerPort: 8000
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.kafka.svc.cluster.local:9092
+            - name: OTLP_COLLECTOR_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
+          # FastAPI/uvicorn cold start is real but far lighter than a JVM
+          # service's -- no class-loading/JIT-warmup budget needed, but
+          # this app's lifespan also has to construct a confluent-kafka
+          # Consumer/Producer and start the background consumer thread
+          # before /healthz meaningfully reflects "actually consuming",
+          # so this still gets a real (if shorter than the JVM services')
+          # initialDelaySeconds rather than assuming instant readiness.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          # Never run on this cluster before this PR, so this is a
+          # defensive starting estimate -- same discipline every other
+          # first-deploy service here uses (re-tighten against real
+          # `kubectl top pod` usage once this has actually run live, the
+          # backlog #77 precedent). CPU *request* matches news-ingestor's
+          # own first-deploy sizing exactly (250m) per this backlog
+          # item's own stated guidance -- no real reason to size a
+          # single-partition Kafka consumer running sub-millisecond VADER
+          # scoring any higher. CPU *limit* set to 500m, not
+          # news-ingestor's 1-core -- that 1-core limit exists to cover a
+          # JVM's own startup/JIT-warmup burst, which a Python/uvicorn
+          # process has no equivalent of; 500m matches
+          # market-data-ingestor's own already-established limit for a
+          # comparably-shaped "no burst compute, continuous small
+          # workload" service instead. Memory matches news-ingestor's
+          # request (256Mi) and market-data-ingestor's/clinvar-service's
+          # own limit class (512Mi) -- VADER's lexicon is loaded once at
+          # startup and is small (a few MB), no large in-memory buffers
+          # anywhere in this service's own code.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
