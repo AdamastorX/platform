@@ -245,6 +245,25 @@ spec:
               - role: pod
                 namespaces:
                   names: ['market-data-ingestor']
+          # sentiment-analyzer (backlog #80, ADR 0029/M13): pod-role
+          # discovery, not a static target -- same "no business HTTP API,
+          # so no stable Kubernetes Service" reasoning as news-ingestor/
+          # market-data-ingestor above (ADR 0009/0011). metrics_path is
+          # /metrics, not /actuator/prometheus -- this is a Python/
+          # FastAPI service (clinvar-service's own scrape-endpoint shape,
+          # ADR 0019), no Spring Actuator here. Not yet a real scrape
+          # target as of this PR -- sentiment-analyzer's Application
+          # (argocd/apps/sentiment-analyzer.yaml) is deliberately not
+          # auto-synced yet (M13's incremental-rollout discipline); this
+          # job finds nothing until a human actually syncs it, the same
+          # inert-until-target-exists shape news-ingestor's own entry had
+          # before its first sync.
+          - job_name: sentiment-analyzer
+            metrics_path: /metrics
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['sentiment-analyzer']
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session

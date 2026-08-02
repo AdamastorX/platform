@@ -1,0 +1,41 @@
+# sentiment-analyzer (backlog #80, M13, ADR 0029): consumes
+# news.article.published, scores sentiment with VADER, publishes
+# news.sentiment.scored. Own namespace, own Application -- same "brand
+# new service" shape as news-ingestor.yaml/market-data-ingestor.yaml,
+# deliberately simpler (no dedicated Postgres instance, this service is
+# stateless).
+#
+# syncPolicy.automated is NOT set here, same deliberate omission as
+# news-ingestor.yaml/market-data-ingestor.yaml -- per M13's
+# owner-overridden-gate discipline (docs/roadmap/backlog.md's M13 intro /
+# ADR 0029's "gated on M7" section, overridden 2026-08-02 to
+# build-now-deploy-incrementally): this service is built and CI-verified
+# in services' feat/sentiment-analyzer branch (backlog #80), but live
+# sync happens one M13 service at a time with a real `kubectl describe
+# node` headroom check immediately before each -- an auto-synced
+# Application would pull the (currently placeholder/invalid) image the
+# moment this manifest merges, which is exactly the all-at-once rollout
+# this milestone's own stated tradeoff rules out. A human runs `argocd
+# app sync sentiment-analyzer` (or flips automated sync on in a
+# follow-up PR) once the services PR has merged, published a real image,
+# kubernetes/sentiment-analyzer/deployment.yaml's placeholder image tag
+# is bumped to match, and a fresh headroom check clears it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sentiment-analyzer
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/sentiment-analyzer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sentiment-analyzer
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

@@ -181,6 +181,19 @@ spec:
             - name: news.article.published
               partitions: 1
               replicationFactor: 1
+            # backlog #80 (M13, ADR 0029): sentiment-analyzer's output
+            # topic. RF=1, same single-broker reason every topic here is
+            # (ADR 0011). 1 partition, matching news.article.published's
+            # own reasoning: exactly one producer (sentiment-analyzer, a
+            # single replica, see kubernetes/sentiment-analyzer/deployment.yaml)
+            # and this milestone's traffic is a handful of scored
+            # (article, ticker) events per news-ingestor poll cycle, not
+            # throughput 3-way parallelism would ever help with; add
+            # partitions later if #81 (aggregator)'s consumer group ever
+            # needs the parallelism, not speculatively now.
+            - name: news.sentiment.scored
+              partitions: 1
+              replicationFactor: 1
   destination:
     server: https://kubernetes.default.svc
     namespace: kafka
