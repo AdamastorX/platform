@@ -37,22 +37,9 @@ spec:
           # same convention as api/workers/watchlist-service) -- bump this
           # one line and open a PR to deploy a new build.
           #
-          # This SHA (5e8cbb2baf0c2711819ee38ba6bf6cb966cfbd37) is
-          # services#backlog-78-market-data-ingestor's current branch HEAD
-          # at the time this file was written, NOT yet a published image:
-          # build-publish.yml only builds+pushes ghcr.io/adamastorx/
-          # market-data-ingestor on a push to services' own main (ADR
-          # 0008), which only happens once that PR is reviewed and merged
-          # by a human. This value needs one more real, honest follow-up
-          # once that happens: either that services PR is rebased/merged
-          # as a merge commit (this SHA becomes real and already correct)
-          # or it's squash-merged (a new SHA is minted, and this line
-          # needs a one-line bump to match, same "bump this one line"
-          # process every future deploy already uses). Until then, this
-          # Application is safe to review and merge on the platform side
-          # -- ArgoCD syncing it before the image exists would just leave
-          # the pod ImagePullBackOff, not a wrong/broken image running.
-          image: ghcr.io/adamastorx/market-data-ingestor:5e8cbb2baf0c2711819ee38ba6bf6cb966cfbd37
+          # Real tag: services#49 merged (squash), build-publish published
+          # this image for the real merge-commit SHA on services' main.
+          image: ghcr.io/adamastorx/market-data-ingestor:85fc34820ef571b7ffa2a0734bca2abe5412c8bf
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # workers) -- this service has no business HTTP API for
