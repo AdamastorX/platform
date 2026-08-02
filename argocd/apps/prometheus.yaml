@@ -160,6 +160,25 @@ spec:
             metrics_path: /actuator/prometheus
             static_configs:
               - targets: ['watchlist-service.watchlist.svc.cluster.local:80']
+          # news-ingestor (backlog #79, M13): same "no stable Service DNS"
+          # shape as workers above -- kubernetes/news-ingestor/deployment.yaml
+          # deliberately has no Kubernetes Service (ADR 0009/0011, this
+          # service has no business HTTP API), so pod-role discovery
+          # scoped to its own namespace, not a static target. Not yet a
+          # real scrape target as of this PR -- news-ingestor's
+          # Application (argocd/apps/news-ingestor.yaml) is deliberately
+          # not auto-synced yet (M13's incremental-rollout discipline);
+          # this job finds nothing (no pods in the namespace) until a
+          # human actually syncs it, the same inert-until-target-exists
+          # shape any config added ahead of its target has, not a broken
+          # target -- checked live (`kubectl get pods -n news-ingestor`
+          # returns nothing today), not assumed.
+          - job_name: news-ingestor
+            metrics_path: /actuator/prometheus
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['news-ingestor']
           # traefik (backlog #56): a seventh target, for the
           # api-key-auth/api-key-ratelimit Traefik middleware's own
           # rejections (401/429) -- these never reach api's backend, so

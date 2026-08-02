@@ -168,6 +168,19 @@ spec:
             - name: stock.price.tick
               partitions: 3
               replicationFactor: 1
+            # backlog #79 (M13, ADR 0029): news-ingestor's output topic.
+            # RF=1 for the same single-broker reason every other topic
+            # here is (ADR 0011). 1 partition, not 3 like work-items --
+            # there is exactly one producer (news-ingestor, a single
+            # replica, see kubernetes/news-ingestor/deployment.yaml) and
+            # this milestone's traffic is a handful of matched articles
+            # per 5-minute poll cycle, not the kind of throughput 3-way
+            # parallelism would ever help with; add partitions later if
+            # #80 (sentiment-analyzer)'s consumer group ever needs the
+            # parallelism, not speculatively now.
+            - name: news.article.published
+              partitions: 1
+              replicationFactor: 1
   destination:
     server: https://kubernetes.default.svc
     namespace: kafka
