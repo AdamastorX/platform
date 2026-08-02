@@ -9,11 +9,14 @@
 # development proceeds now on the current single-node cluster, but live
 # deployment is deliberately incremental -- one service at a time, with a
 # real `kubectl describe node` headroom check before each sync, not this
-# whole milestone's five services applied at once. This Application is
-# reviewed and merged on that basis; whether/when ArgoCD is actually
-# pointed at this file (or its sync is triggered) is a separate, real
-# decision for a human to make at deploy time, not implied by this PR's
-# merge alone.
+# whole milestone's five services applied at once. Same shape as
+# news-ingestor.yaml (backlog #79): no `syncPolicy.automated` here on
+# purpose -- merging this manifest must not, by itself, cause ArgoCD to
+# pull the (not-yet-real) image the moment it lands on main. A human runs
+# `argocd app sync market-data-ingestor` (or a follow-up PR adds automated
+# sync) once services#49 has merged, published a real image, this file's
+# placeholder-shaped image tag is bumped to match, and a fresh headroom
+# check clears it.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -37,8 +40,5 @@ spec:
     # already happened.
     namespace: market-data-ingestor
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
