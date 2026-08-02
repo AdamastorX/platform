@@ -19,9 +19,11 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: workers
+  # TEMPORARY, backlog #75 clean re-run (chaos scenario 3 at the
+  # unmodified default rate, isolating backlog-size from the elevated
+  # test rate the first run couldn't separate). Same real pause already
+  # proven for this exact need (#73/#75's own prior sync-pauses).
+  # Reverted via a follow-up PR once the scenario is done.
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
