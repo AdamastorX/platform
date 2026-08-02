@@ -1,0 +1,37 @@
+# news-ingestor (backlog #79, M13, ADR 0029): polls WSJ Markets +
+# MarketWatch RSS, matches against a fixed watchlist, publishes
+# news.article.published. Own namespace, own Application -- same "brand
+# new service" shape as watchlist-service.yaml, deliberately simpler (no
+# dedicated Postgres instance, this service is stateless).
+#
+# syncPolicy.automated is NOT set here, unlike watchlist-service.yaml --
+# deliberate, per M13's owner-overridden-gate discipline
+# (docs/roadmap/backlog.md's M13 intro / ADR 0029's "gated on M7"
+# section, overridden 2026-08-02 to build-now-deploy-incrementally): this
+# service is built and CI-verified in services#48, but live sync happens
+# one M13 service at a time with a real `kubectl describe node` headroom
+# check immediately before each -- an auto-synced Application would pull
+# the (currently placeholder/invalid) image the moment this manifest
+# merges, which is exactly the all-at-once rollout this milestone's own
+# stated tradeoff rules out. A human runs `argocd app sync news-ingestor`
+# (or flips automated sync on in a follow-up PR) once services#48 has
+# merged, published a real image, and a fresh headroom check clears it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: news-ingestor
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/news-ingestor
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: news-ingestor
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
