@@ -37,24 +37,11 @@ spec:
           # same convention as every other service here) -- bump this one
           # line and open a PR to deploy a new build.
           #
-          # This SHA (c404da1636127e704cf305a3ae5184d059322131) is
-          # services' feat/sentiment-analyzer branch HEAD (backlog #80)
-          # at the time this file was written, NOT yet a published image --
-          # build-publish.yml only builds+pushes
-          # ghcr.io/adamastorx/sentiment-analyzer on a push to services'
-          # own main (ADR 0008), which only happens once that PR is
-          # reviewed and merged. Same placeholder-tag pattern
-          # market-data-ingestor's own first-deploy manifest used
-          # (kubernetes/market-data-ingestor/deployment.yaml's git
-          # history) -- this Application is safe to review and merge on
-          # the platform side; ArgoCD syncing it before the image exists
-          # would just leave the pod ImagePullBackOff, not a wrong/broken
-          # image running, and this Application has no
-          # syncPolicy.automated anyway (see argocd/apps/sentiment-analyzer.yaml),
-          # so nothing auto-syncs it before a human bumps this tag to the
-          # real merged image and runs a fresh headroom check (M13's own
-          # incremental-rollout discipline).
-          image: ghcr.io/adamastorx/sentiment-analyzer:c404da1636127e704cf305a3ae5184d059322131
+          # Real tag: services#50 merged (squash, plus a review-time fix
+          # guarding the consumer loop against an uncaught scoring
+          # exception), build-publish published this image for the real
+          # merge-commit SHA on services' main.
+          image: ghcr.io/adamastorx/sentiment-analyzer:d112e37ffd61fc449ba76cb2fbc0d9e22c293a94
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # news-ingestor/market-data-ingestor/workers) -- this service
