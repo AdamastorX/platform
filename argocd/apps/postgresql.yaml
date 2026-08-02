@@ -58,27 +58,6 @@ spec:
           database: api
           existingSecret: postgresql
         primary:
-          # TEMPORARY, backlog #73: live pg_hba.conf edit + reload isn't
-          # possible on this cluster -- confirmed live, kubectl exec
-          # cannot signal PID 1 inside the container (`pg_ctl reload`/
-          # `kill -HUP 1` both real "Permission denied", a container-
-          # runtime restriction, not a Postgres one) -- and pg_hba.conf
-          # itself lives on the pod's own emptyDir, regenerated fresh by
-          # the Bitnami entrypoint on every restart, so a live in-container
-          # edit can't survive the restart it would need anyway. The only
-          # real path is a committed chart-values change, which recreates
-          # the pod with this baked in from the start. `local all postgres
-          # trust` prepended ahead of the chart's own default rules
-          # (unchanged below it) -- narrow: local Unix-socket connections
-          # only, `postgres` user only, nothing else affected. Reverted via
-          # a follow-up PR immediately after the password is fixed.
-          pgHbaConfiguration: |-
-            local all postgres trust
-            host     all             all             0.0.0.0/0               md5
-            host     all             all             ::/0                    md5
-            local    all             all                                     md5
-            host     all             all        127.0.0.1/32                 md5
-            host     all             all        ::1/128                      md5
           # backlog #77: resourcesPreset: small (500m/750m cpu) was the
           # chart default carried over unexamined since ADR 0012 -- real
           # `kubectl top pod` usage on the live cluster sat at 12m
