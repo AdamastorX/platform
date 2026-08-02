@@ -1,0 +1,44 @@
+# First deploy of market-data-ingestor (backlog #78, ADR 0029/M13) --
+# bootstraps its existence in-cluster per ADR 0009, same pattern as
+# workers/watchlist-service's own first-deploy Application. No Service
+# (ADR 0009/0011: no business HTTP API, nothing calls it -- it only
+# subscribes to Finnhub over a websocket and produces to Kafka).
+#
+# M7's hardware gate on this whole milestone was overridden by the owner
+# 2026-08-02 (docs/roadmap/backlog.md's M13 section, adamastorx repo):
+# development proceeds now on the current single-node cluster, but live
+# deployment is deliberately incremental -- one service at a time, with a
+# real `kubectl describe node` headroom check before each sync, not this
+# whole milestone's five services applied at once. Same shape as
+# news-ingestor.yaml (backlog #79): no `syncPolicy.automated` here on
+# purpose -- merging this manifest must not, by itself, cause ArgoCD to
+# pull the (not-yet-real) image the moment it lands on main. A human runs
+# `argocd app sync market-data-ingestor` (or a follow-up PR adds automated
+# sync) once services#49 has merged, published a real image, this file's
+# placeholder-shaped image tag is bumped to match, and a fresh headroom
+# check clears it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: market-data-ingestor
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/market-data-ingestor
+  destination:
+    server: https://kubernetes.default.svc
+    # Namespace already exists on the real cluster (created ahead of this
+    # PR, alongside the already-provisioned finnhub-api-key Secret) --
+    # CreateNamespace=true below is still set for the same reason every
+    # other Application here sets it: a fresh/rebuilt cluster applying
+    # this file from scratch must not depend on that manual step having
+    # already happened.
+    namespace: market-data-ingestor
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data-ingestor
+  labels:
+    app: market-data-ingestor
+spec:
+  # A plain Deployment, deliberately NOT a Rollout -- same reasoning
+  # watchlist-service's own deployment.yaml already states for itself:
+  # backlog #46's canary + automated-SLO-gate pattern was applied only to
+  # api (a service with a real, already-dated incident and continuous
+  # real traffic). This is a brand-new service with no traffic/SLO history
+  # of its own yet -- extending the canary pattern here would be exactly
+  # the build-ahead-of-need ADR 0021 exists to rule out for a first
+  # deploy of a new component.
+  #
+  # replicas: 1, explicit and pinned (unlike workers' deliberately-absent
+  # field under KEDA control) -- this service holds exactly one live
+  # Finnhub websocket subscription in process memory
+  # (finnhub.FinnhubWebSocketClient). A second replica would open a
+  # second, fully independent subscription to the same watchlist and
+  # publish every real trade tick twice, a real correctness bug, not a
+  # scaling win -- so this is deliberately never autoscaled (no
+  # ScaledObject here, unlike workers).
+  replicas: 1
+  selector:
+    matchLabels:
+      app: market-data-ingestor
+  template:
+    metadata:
+      labels:
+        app: market-data-ingestor
+    spec:
+      containers:
+        - name: market-data-ingestor
+          # Image tag is the services repo's commit SHA (ADR 0008/0009,
+          # same convention as api/workers/watchlist-service) -- bump this
+          # one line and open a PR to deploy a new build.
+          #
+          # This SHA (5e8cbb2baf0c2711819ee38ba6bf6cb966cfbd37) is
+          # services#backlog-78-market-data-ingestor's current branch HEAD
+          # at the time this file was written, NOT yet a published image:
+          # build-publish.yml only builds+pushes ghcr.io/adamastorx/
+          # market-data-ingestor on a push to services' own main (ADR
+          # 0008), which only happens once that PR is reviewed and merged
+          # by a human. This value needs one more real, honest follow-up
+          # once that happens: either that services PR is rebased/merged
+          # as a merge commit (this SHA becomes real and already correct)
+          # or it's squash-merged (a new SHA is minted, and this line
+          # needs a one-line bump to match, same "bump this one line"
+          # process every future deploy already uses). Until then, this
+          # Application is safe to review and merge on the platform side
+          # -- ArgoCD syncing it before the image exists would just leave
+          # the pod ImagePullBackOff, not a wrong/broken image running.
+          image: ghcr.io/adamastorx/market-data-ingestor:5e8cbb2baf0c2711819ee38ba6bf6cb966cfbd37
+          ports:
+            # No Kubernetes Service for this port (ADR 0009/0011, same as
+            # workers) -- this service has no business HTTP API for
+            # another service to call. It exists so actuator's health
+            # probes/Prometheus scrape below have something to hit, plus
+            # admin.ReconnectController's POST
+            # /internal/market-data/force-reconnect (reached only via
+            # `kubectl exec` + curl or a port-forward -- an operational/
+            # test hook, not a public API; see that class's own javadoc).
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.kafka.svc.cluster.local:9092
+            - name: OTLP_COLLECTOR_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
+            # backlog #36's existing out-of-band Secret pattern, applied to
+            # this milestone's first real third-party vendor credential
+            # (bootstrap/README.md/create-stateful-secrets.sh) -- the
+            # finnhub-api-key Secret in this namespace is NOT created by
+            # that script (unlike every Secret it does provision, a real
+            # Finnhub account API key cannot be generated locally); it was
+            # created out-of-band this session, live-verified against
+            # https://finnhub.io/api/v1/quote before this Deployment was
+            # written. Never the raw value in any git-tracked file.
+            - name: FINNHUB_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: finnhub-api-key
+                  key: api-key
+          # Spring Boot Actuator health groups, same shape as
+          # api/workers/watchlist-service's own Deployment -- JVM cold
+          # start budget, not a trivial static-binary proof app's.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          # First deploy of this service -- no real `kubectl top pod`
+          # usage exists yet to size against (the #77 precedent every
+          # other service's own resources comment cites needs a running
+          # workload to sample first). Starting point matches workers'
+          # own first-deploy sizing exactly (kubernetes/workers/
+          # deployment.yaml): a comparable-weight JVM workload (webmvc +
+          # actuator + spring-kafka + one always-on websocket client
+          # thread), no database. Real node headroom checked live before
+          # this first deploy (`kubectl describe node`, this item's PR
+          # description has the exact numbers) -- this request fits with
+          # room to spare; revisit with real usage once #77-style
+          # follow-up sampling exists, same as every other service here.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

@@ -1,0 +1,22 @@
+# platform#35 pattern: bounds total consumption of the
+# market-data-ingestor namespace (a single Deployment, no other
+# workloads here -- no dedicated Postgres, unlike watchlist-service).
+#
+# First deploy -- no real `kubectl top pod` usage exists yet (see
+# deployment.yaml's own comment). Sized against the container's own
+# stated requests/limits (250m/256Mi request, 500m/512Mi limit) at
+# replicas: 1, doubled for a rolling update's default maxSurge=1 (briefly
+# 2 pods): requests cpu=500m mem=512Mi, limits cpu=1000m mem=1024Mi.
+# Revisit with real usage once this service has run long enough to
+# sample, same #77-style follow-up every other namespace's own quota
+# comment names.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 500m
+    requests.memory: 512Mi
+    limits.cpu: 1000m
+    limits.memory: 1024Mi
