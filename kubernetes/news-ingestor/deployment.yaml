@@ -26,18 +26,14 @@ spec:
           # same convention as api/workers/watchlist-service) -- bump this
           # one line and open a PR to deploy a new build.
           #
-          # No real tag exists yet: build-publish.yml only publishes an
-          # image on push to services' `main` (post-merge), and
-          # services#48 (the news-ingestor module itself) is still open,
-          # not merged, as of this PR. This deliberately-invalid
-          # placeholder tag (ArgoCD sync will fail to pull it) is a
-          # correctness backstop, not a real value -- swap it for the
-          # real ghcr.io/adamastorx/news-ingestor:<sha> once services#48
-          # merges and its build-publish run completes, immediately
-          # before this Deployment is actually synced live (M13's
-          # incremental, one-service-at-a-time rollout discipline; this
-          # platform PR does not deploy itself).
-          image: ghcr.io/adamastorx/news-ingestor:PENDING-services-48-merge
+          # Real tag: services#48 merged and its build-publish run
+          # completed (2026-08-02), real image confirmed present in GHCR
+          # for the merge commit SHA on services' main. This Application
+          # still has no syncPolicy.automated -- the manifest merging here
+          # does not deploy itself; a human runs `argocd app sync
+          # news-ingestor` next, immediately after a fresh headroom check
+          # (M13's incremental, one-service-at-a-time rollout discipline).
+          image: ghcr.io/adamastorx/news-ingestor:7bb6afa72fe4340c8817f109197a66c24e929d65
           ports:
             # No Kubernetes Service for this port (same ADR 0009/0011
             # reasoning as workers: this service has no business HTTP
