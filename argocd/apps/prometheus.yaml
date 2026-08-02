@@ -216,6 +216,16 @@ spec:
               - source_labels: [__meta_kubernetes_pod_container_port_name]
                 regex: metrics
                 action: keep
+          # market-data-ingestor (backlog #78, ADR 0029/M13): pod-role
+          # discovery, not a static target -- same reasoning as workers
+          # above (ADR 0009/0011: no business HTTP API, so no stable
+          # Kubernetes Service exists to point a static target at).
+          - job_name: market-data-ingestor
+            metrics_path: /actuator/prometheus
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['market-data-ingestor']
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
@@ -559,6 +569,29 @@ spec:
                   # vector before this cluster's first-ever 429 would
                   # otherwise make the expression itself fail to
                   # evaluate, not just read as "no alert".
+                  # market-data-ingestor stale feed (backlog #78's own AC:
+                  # "a real, observable metric ... not a silent gap").
+                  # market_data_stale_feed is a real-time 0/1 gauge
+                  # (StaleFeedMetrics) that already bakes the US-market-hours
+                  # check into its own value application-side (same shape
+                  # WatchlistDlqDepthHigh above uses for
+                  # watchlist_delivery_dlq_depth) -- so, unlike a raw
+                  # PromQL-derived staleness expression, this rule needs no
+                  # timezone-aware logic of its own: after-hours/weekend
+                  # silence already reads 0, never firing this alert. `for:
+                  # 5m` on top of the gauge's own 5-minute stale-threshold
+                  # (app.market-data.stale-threshold,
+                  # market-data-ingestor/application.yml) is a small buffer
+                  # against a single borderline scrape, same reasoning as
+                  # WatchlistDlqDepthHigh's own 5m.
+                  - alert: MarketDataStaleFeed
+                    expr: market_data_stale_feed{job="market-data-ingestor"} > 0
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "market-data-ingestor has a stale watchlist ticker feed during US market hours"
+                      description: "market_data_stale_feed is 1 for at least one watchlisted ticker -- no trade tick received within the configured staleness threshold while US markets are open (a simple America/New_York business-hours check, no holiday calendar -- see backlog #78 / market-data-ingestor's own MarketHoursService). Check the Finnhub websocket connection (market_data_websocket_reconnects_total/market_data_websocket_connect_failures_total) and market-data-ingestor's logs for a stuck or repeatedly-failing reconnect."
                   - alert: ApiRateLimitRejectionsHigh
                     expr: (sum(rate(traefik_entrypoint_requests_total{code="429",entrypoint="websecure"}[5m])) or vector(0)) > 0.2
                     for: 5m

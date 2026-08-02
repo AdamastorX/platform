@@ -152,6 +152,22 @@ spec:
             - name: work-items
               partitions: 3
               replicationFactor: 1
+            # backlog #78 (ADR 0029, M13): market-data-ingestor's real
+            # trade-tick event. Same 3-partitions/RF=1 shape as work-items
+            # (this single-broker dev cluster, ADR 0011) -- 3 partitions is
+            # more than this one producer needs today, but matches the
+            # established convention rather than inventing a
+            # smaller-topic special case, and leaves room for #81
+            # (aggregator, the topic's first real consumer) to run more
+            # than one instance later without a partition-count migration.
+            # Provisioned through this same Job, not a hand-run
+            # `kafka-topics.sh --create` -- see docs/SESSION_STATE.md
+            # (adamastorx repo) for when that manual command is the real,
+            # sanctioned fallback (recovering a topic after a broker
+            # restart raced this Job, not routine provisioning).
+            - name: stock.price.tick
+              partitions: 3
+              replicationFactor: 1
   destination:
     server: https://kubernetes.default.svc
     namespace: kafka

@@ -65,6 +65,29 @@ already exists, the whole block is skipped (deliberately -- see the
 script's own comment for why a partial re-run can't safely recover a raw
 key from an existing htpasswd hash).
 
+## Finnhub API key (backlog #78)
+
+`market-data-ingestor` (ADR 0029/M13) reads a real Finnhub free-tier API
+key from the `finnhub-api-key` Secret (`market-data-ingestor` namespace,
+`api-key` key) via `secretKeyRef` -- **not created by
+`create-stateful-secrets.sh`**, unlike every other Secret this directory
+provisions. It's a real third-party vendor credential (a human's Finnhub
+account), not something `gen_password`/`gen_api_key` can generate
+locally. Create it by hand:
+
+```sh
+kubectl create secret generic finnhub-api-key -n market-data-ingestor \
+  --from-literal=api-key=<the real key from your finnhub.io account>
+```
+
+Already provisioned on this cluster (created and live-verified against a
+real `https://finnhub.io/api/v1/quote` call before backlog #78's PR was
+opened). `create-stateful-secrets.sh` still creates the
+`market-data-ingestor` namespace and checks whether this Secret exists,
+printing the command above if it's missing -- the same "documented, not
+silently assumed" bar every other Secret here meets, short of actually
+generating a value it has no way to generate.
+
 **Rotating an api-tenant-keys key**: not yet automated. Delete the four
 Secrets (`api-tenant-keys`, `workload-generator-api-key`,
 `clinvar-viewer-api-key`, and re-run the script) and roll the two

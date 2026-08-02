@@ -135,6 +135,13 @@ create_ns watchlist
 # reasoning as every create_ns call above.
 create_ns workload-generator
 create_ns clinvar-viewer
+# backlog #78 (ADR 0029/M13): same "this script must also work against a
+# fresh cluster" reasoning as workload-generator/clinvar-viewer above --
+# market-data-ingestor's own Application (argocd/apps/market-data-ingestor.yaml)
+# also sets CreateNamespace=true, but the finnhub-api-key Secret below
+# needs the namespace to exist before it can be created, on a fresh
+# cluster where that Application hasn't synced yet either.
+create_ns market-data-ingestor
 
 echo "==> postgresql (api namespace)"
 # Keys match the chart's auth.secretKeys defaults (adminPasswordKey,
@@ -265,6 +272,31 @@ if kubectl get secret adamastorx-root-ca -n cert-manager >/dev/null 2>&1; then
   unset ca_crt
 else
   echo "==> adamastorx-root-ca Secret not found in cert-manager namespace yet -- skipping (re-run this script after cert-manager-issuers' Application has synced)"
+fi
+
+echo "==> finnhub-api-key (market-data-ingestor namespace, backlog #78) -- NOT created by this script"
+# Unlike every Secret this script does create above, this one holds a real
+# third-party vendor credential (a Finnhub account's free-tier API key,
+# ADR 0029) that cannot be generated locally the way gen_password/
+# gen_api_key generate this project's own credentials -- a human has to
+# sign up at finnhub.io and obtain it. Documented here, in the one place
+# this project's other out-of-band Secrets are documented, rather than
+# left to be rediscovered:
+#
+#   kubectl create secret generic finnhub-api-key -n market-data-ingestor \
+#     --from-literal=api-key=<the real key from your finnhub.io account>
+#
+# Already provisioned on this cluster (created and live-verified against
+# a real https://finnhub.io/api/v1/quote call before backlog #78's PR was
+# opened) -- this note exists for a fresh/rebuilt cluster, where
+# market-data-ingestor's Deployment will otherwise sit at
+# CreateContainerConfigError until this Secret exists (its
+# FINNHUB_API_KEY env var reads it via secretKeyRef, kubernetes/
+# market-data-ingestor/deployment.yaml).
+if kubectl get secret finnhub-api-key -n market-data-ingestor >/dev/null 2>&1; then
+  echo "==> secret/finnhub-api-key (ns market-data-ingestor) already exists -- leaving it untouched"
+else
+  echo "==> secret/finnhub-api-key (ns market-data-ingestor) does NOT exist -- create it manually, see the comment above this line"
 fi
 
 echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror additions) present."
