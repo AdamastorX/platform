@@ -39,19 +39,9 @@ spec:
           # same convention as every other service here) -- bump this
           # one line and open a PR to deploy a new build.
           #
-          # This SHA is services' feat/aggregator branch HEAD (backlog
-          # #81) at the time this file was written, NOT yet a published
-          # image -- build-publish.yml only builds+pushes
-          # ghcr.io/adamastorx/aggregator on a push to services' own main
-          # (ADR 0008), which only happens once that PR is reviewed and
-          # merged. Same placeholder-tag pattern every other M13
-          # service's first-deploy manifest used -- this Application has
-          # no syncPolicy.automated (see argocd/apps/aggregator.yaml), so
-          # nothing auto-syncs it before a human bumps this tag to the
-          # real merged image and runs a fresh headroom check (M13's own
-          # incremental-rollout discipline, owner-overridden gate,
-          # 2026-08-02).
-          image: ghcr.io/adamastorx/aggregator:REPLACE_WITH_REAL_MERGE_SHA
+          # Real tag: services#51 merged (squash), build-publish published
+          # this image for the real merge-commit SHA on services' main.
+          image: ghcr.io/adamastorx/aggregator:64e0443c87c4e6685f60234ca8cf88d712879949
           ports:
             # Business API (GET /aggregates, GET /aggregates/{ticker})
             # AND actuator on the same port -- unlike
