@@ -1,0 +1,28 @@
+# Bounds total consumption of the `aggregator` namespace -- one
+# Deployment, no dedicated Postgres (this service's durable state is the
+# Kafka changelog topics, not a database -- see README.md's "ADR 0011,
+# resolved" section), so this quota is smaller than watchlist-service's
+# own (which covers a Deployment plus a Postgres chart in the same
+# namespace).
+#
+# Never run on this cluster before this PR, so deployment.yaml's request/
+# limit are a defensive starting estimate (see that file's own, honestly
+# flagged resource-sizing reasoning -- this project's first Kafka Streams
+# app, no direct sizing precedent) -- steady-state: requests cpu=250m
+# mem=320Mi, limits cpu=1000m mem=640Mi. A rolling update (default
+# maxSurge=1, single-replica Deployment) briefly doubles that at peak:
+# requests cpu=500m mem=640Mi, limits cpu=2000m mem=1280Mi. Quota below
+# clears that real peak with a small margin, not padded further --
+# re-tighten against real `kubectl top pod` usage once this has actually
+# run live, the same backlog #77 discipline every other service here
+# followed.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 600m
+    requests.memory: 768Mi
+    limits.cpu: 2500m
+    limits.memory: 1536Mi
