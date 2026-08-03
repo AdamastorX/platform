@@ -39,12 +39,14 @@ spec:
           # same convention as every other service here) -- bump this
           # one line and open a PR to deploy a new build.
           #
-          # Real tag: services#52 (RocksDB/Alpine libstdc++ fix, backlog
-          # #85 -- see that item for the real live incident this fixes:
-          # the previous image's Kafka Streams client crashed with a real
-          # UnsatisfiedLinkError opening a RocksDB store, while the pod
-          # itself stayed Healthy throughout).
-          image: ghcr.io/adamastorx/aggregator:11a9442e6d95783dd4e2d89d287e01fac85d5f70
+          # Real tag: services#53 (backlog #85's second real incident --
+          # BoundedRocksDbConfigSetter replaced the Options' own
+          # BlockBasedTableConfig instead of reusing it, breaking Kafka
+          # Streams' internal RocksDB metrics wiring the moment a store
+          # was actually opened against real traffic; the pod again
+          # stayed Healthy throughout the crash). Stacked on services#52's
+          # libstdc++ fix.
+          image: ghcr.io/adamastorx/aggregator:f83ff3aaac13f04d93f4781656ca8b96fe589a81
           ports:
             # Business API (GET /aggregates, GET /aggregates/{ticker})
             # AND actuator on the same port -- unlike
