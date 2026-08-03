@@ -39,9 +39,12 @@ spec:
           # same convention as every other service here) -- bump this
           # one line and open a PR to deploy a new build.
           #
-          # Real tag: services#51 merged (squash), build-publish published
-          # this image for the real merge-commit SHA on services' main.
-          image: ghcr.io/adamastorx/aggregator:64e0443c87c4e6685f60234ca8cf88d712879949
+          # Real tag: services#52 (RocksDB/Alpine libstdc++ fix, backlog
+          # #85 -- see that item for the real live incident this fixes:
+          # the previous image's Kafka Streams client crashed with a real
+          # UnsatisfiedLinkError opening a RocksDB store, while the pod
+          # itself stayed Healthy throughout).
+          image: ghcr.io/adamastorx/aggregator:11a9442e6d95783dd4e2d89d287e01fac85d5f70
           ports:
             # Business API (GET /aggregates, GET /aggregates/{ticker})
             # AND actuator on the same port -- unlike
