@@ -1,0 +1,53 @@
+# aggregator (backlog #81, M13, ADR 0029): supersedes/revives #55. A
+# Kafka Streams topology consuming stock.price.tick and
+# news.sentiment.scored, computing windowed price/sentiment aggregates
+# per ticker, served over a small REST API for #82 (visualizer). Own
+# namespace, own Application -- same "brand new service" shape as
+# news-ingestor.yaml/market-data-ingestor.yaml/sentiment-analyzer.yaml,
+# except this one *does* get a Kubernetes Service (see
+# kubernetes/aggregator/service.yaml) -- unlike those three, this service
+# has a real business HTTP API.
+#
+# syncPolicy.automated is NOT set here, same deliberate omission as
+# every other M13 Application -- per M13's owner-overridden-gate
+# discipline (docs/roadmap/backlog.md's M13 intro / ADR 0029's "gated on
+# M7" section, overridden 2026-08-02 to build-now-deploy-incrementally):
+# this service is built and CI-verified in services' feat/aggregator
+# branch (backlog #81), but live sync happens one M13 service at a time
+# with a real `kubectl describe node` headroom check immediately before
+# each -- an auto-synced Application would pull the (currently
+# placeholder/invalid) image the moment this manifest merges, which is
+# exactly the all-at-once rollout this milestone's own stated tradeoff
+# rules out. A human runs `argocd app sync aggregator` (or flips
+# automated sync on in a follow-up PR) once the services PR has merged,
+# published a real image, kubernetes/aggregator/deployment.yaml's
+# placeholder image tag is bumped to match, and a fresh headroom check
+# clears it.
+#
+# Real node headroom, checked live immediately before this file was
+# written: 3045m/4000m (76%) CPU requested, ~955m free (under 1 core) --
+# tighter than any of #78/#79/#80's own first deploys. See
+# kubernetes/aggregator/deployment.yaml's own resources comment for the
+# full, honest sizing reasoning and the explicit flag on the CPU limit's
+# real headroom risk -- this is a real decision for a human to make at
+# actual sync time, against a fresh reading, not something this manifest
+# resolves for them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aggregator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/aggregator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: aggregator
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

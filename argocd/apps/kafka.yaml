@@ -146,6 +146,27 @@ spec:
         # Declarative topic provisioning via the chart's built-in Job —
         # simplest option that satisfies ADR 0011's work-items topic
         # (3 partitions, RF=1) without a hand-written Job manifest.
+        #
+        # backlog #81 (aggregator, M13, ADR 0029) reads stock.price.tick
+        # and news.sentiment.scored below as its two inputs -- no new
+        # entry needed for either. It also does NOT need a hand-provisioned
+        # entry here for its own internal changelog topics
+        # (aggregator-price-window-store-changelog,
+        # aggregator-sentiment-window-store-changelog): Kafka Streams
+        # creates and manages those itself via its own internal
+        # AdminClient on startup, entirely independent of this Job and of
+        # auto.create.topics.enable above (that setting only affects
+        # broker-side auto-creation triggered by an ordinary produce/fetch
+        # request, not Kafka Streams' own explicit CreateTopics calls for
+        # its internal topics -- confirmed live: aggregator's own test
+        # suite exercises this exact path against a real embedded broker
+        # with auto.create.topics.enable at its own default, and the
+        # changelog topics come up correctly). Their replication factor
+        # follows this broker's own default.replication.factor (left
+        # unset above, so it's Kafka's own factory default of 1) -- the
+        # same RF=1 every other topic here already uses for the same
+        # single-broker reason (ADR 0011), not something this Job needs
+        # to state a second time.
         provisioning:
           enabled: true
           topics:

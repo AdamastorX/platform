@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator
+  labels:
+    app: aggregator
+spec:
+  # A plain Deployment, deliberately NOT a Rollout -- same reasoning
+  # watchlist-service/market-data-ingestor's own deployment.yaml states
+  # for itself: backlog #46's canary + automated-SLO-gate pattern was
+  # applied only to api (a real, already-dated incident and continuous
+  # real traffic). This is a brand-new service with no traffic/SLO
+  # history yet -- extending the canary pattern here would be exactly
+  # the build-ahead-of-need ADR 0021 exists to rule out for a first
+  # deploy.
+  #
+  # replicas: 1, explicit -- this is a stateful Kafka Streams app with
+  # local RocksDB state stores. A second replica would need Kafka
+  # Streams' own partition-based task assignment across instances (real,
+  # supported, but real added operational complexity: interactive
+  # queries would then need remote-store routing via
+  # streamsMetadataForStore, since not every key would be local anymore
+  # -- see services/aggregator/src/main/java/.../api/AggregateQueryService.java's
+  # own javadoc on why this is a deliberate, stated single-replica
+  # simplification, not an oversight). No AC need for more than one
+  # replica at this milestone's real traffic volume.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggregator
+  template:
+    metadata:
+      labels:
+        app: aggregator
+    spec:
+      containers:
+        - name: aggregator
+          # Image tag is the services repo's commit SHA (ADR 0008/0009,
+          # same convention as every other service here) -- bump this
+          # one line and open a PR to deploy a new build.
+          #
+          # This SHA is services' feat/aggregator branch HEAD (backlog
+          # #81) at the time this file was written, NOT yet a published
+          # image -- build-publish.yml only builds+pushes
+          # ghcr.io/adamastorx/aggregator on a push to services' own main
+          # (ADR 0008), which only happens once that PR is reviewed and
+          # merged. Same placeholder-tag pattern every other M13
+          # service's first-deploy manifest used -- this Application has
+          # no syncPolicy.automated (see argocd/apps/aggregator.yaml), so
+          # nothing auto-syncs it before a human bumps this tag to the
+          # real merged image and runs a fresh headroom check (M13's own
+          # incremental-rollout discipline, owner-overridden gate,
+          # 2026-08-02).
+          image: ghcr.io/adamastorx/aggregator:REPLACE_WITH_REAL_MERGE_SHA
+          ports:
+            # Business API (GET /aggregates, GET /aggregates/{ticker})
+            # AND actuator on the same port -- unlike
+            # news-ingestor/market-data-ingestor/sentiment-analyzer
+            # (which have no business HTTP API and therefore no
+            # Service), this service has a real caller (#82,
+            # visualizer) and gets a real Kubernetes Service (see
+            # service.yaml), same shape watchlist-service's own
+            # deployment.yaml/service.yaml already establish.
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.kafka.svc.cluster.local:9092
+            - name: OTLP_COLLECTOR_ENDPOINT
+              value: http://otel-collector.otel.svc.cluster.local:4318/v1/traces
+          # Spring Boot Actuator health groups (application.yml enables
+          # management.endpoint.health.probes), same JVM cold-start
+          # budget as every other Java module here. Readiness is NOT
+          # gated on Kafka Streams reaching RUNNING (Boot's default
+          # readiness group only includes readinessState, confirmed by
+          # inspecting the actual spring-boot-kafka jar -- no
+          # KafkaStreamsHealthIndicator is added to it) -- the app comes
+          # up and reports ready even while state-store restoration is
+          # still in progress in the background; the REST API itself
+          # returns a real 503 for that window instead (see
+          # AggregateController's own javadoc), a more honest signal
+          # than a readiness probe that would otherwise flap the pod in
+          # and out of the Service's endpoint list during every real
+          # restart's real (see README.md) ~45s restore/rejoin window.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          # Never run on this cluster before this PR -- this project's
+          # first Kafka Streams app, so there is no direct sizing
+          # precedent the way every other M13 service had (each of
+          # #78/#79/#80 could size against a comparable prior JVM
+          # service's own first-deploy numbers). Reasoned here instead
+          # of copied:
+          #
+          # CPU request (250m): matches news-ingestor/market-data-ingestor's
+          # own first-deploy request exactly -- a comparable-weight JVM
+          # workload (webmvc + actuator + spring-kafka) plus Kafka
+          # Streams itself, whose real measured steady-state cost at
+          # this milestone's real traffic (a handful of ticks/scores per
+          # ticker per 15-min window) is small: StateStoreRecoveryTest's
+          # own real numbers (services/aggregator/README.md) show actual
+          # changelog restoration taking well under a second for this
+          # data volume, not a sustained CPU cost.
+          #
+          # CPU limit (1000m / 1 core): same "JVM cold-start/JIT-warmup
+          # burst" budget news-ingestor's own 1-core limit exists for,
+          # PLUS this service's own state-restoration burst on every
+          # startup (RocksDB open + changelog replay) -- real, but per
+          # the same real measurement, fast/cheap at this data volume,
+          # so not a reason to size the limit any higher than
+          # news-ingestor's own precedent.
+          #
+          # Memory request/limit (320Mi / 640Mi): news-ingestor's own
+          # 256Mi/512Mi JVM baseline, plus an explicit ~64Mi/~128Mi
+          # margin for RocksDB's own off-heap native memory (not counted
+          # in the JVM heap) -- BoundedRocksDbConfigSetter's own javadoc
+          # bounds this to roughly 24MB worst case for this topology's
+          # two stores under this project's real, deliberately small
+          # data volume; the margin here is generous relative to that
+          # bound, not sized to exactly match it.
+          #
+          # HONEST FLAG (backlog #81's own stated requirement, not
+          # glossed over): real current node headroom, checked live via
+          # `kubectl describe node` immediately before this file was
+          # written -- 3045m/4000m (76%) CPU requested, ~955m free
+          # (under 1 core) -- tighter than any of #78/#79/#80's own
+          # first deploys (each had ~1.4-1.7 free cores at their own
+          # deploy time). The CPU *request* below (250m) fits with real
+          # room to spare. The CPU *limit* (1000m) is a different
+          # question: if this service's real startup burst (JVM
+          # JIT-warmup concurrent with Kafka Streams' own RocksDB-open/
+          # changelog-replay I/O) coincides with a burst from any other
+          # already-live M13 service on this same node, the two limits
+          # together could plausibly consume most of this node's
+          # currently-free ~955m. This has NOT been measured live (no
+          # live sync attempted for this item, see the PR description)
+          # -- a real, human go/no-go judgment call belongs here at
+          # actual deploy time, against a *fresh* `kubectl describe
+          # node` reading taken immediately before sync, not this
+          # comment's now-stale numbers.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 320Mi
+            limits:
+              cpu: "1"
+              memory: 640Mi
