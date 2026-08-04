@@ -1,0 +1,60 @@
+# visualizer (backlog #82, M13, ADR 0029): a static live price/sentiment
+# chart for aggregator's (#81) watchlist, same spirit and shape as
+# clinvar-viewer -- no backend of its own, deploy-time-mounted config.js
+# (backlog #56's own mechanism, reused not reinvented). Own namespace,
+# own Application, own Ingress (kubernetes/visualizer/ingress.yaml) --
+# this is the one M13 service with a real human-facing UI, so unlike
+# news-ingestor/market-data-ingestor/sentiment-analyzer it gets both a
+# Service and a public Ingress, the same "has a real business HTTP
+# caller" shape aggregator.yaml's own comment already states for itself.
+#
+# syncPolicy.automated is NOT set here, same deliberate omission as
+# every other M13 Application (aggregator.yaml/news-ingestor.yaml/
+# market-data-ingestor.yaml/sentiment-analyzer.yaml) -- per M13's
+# owner-overridden-gate discipline (docs/roadmap/backlog.md's M13 intro
+# / ADR 0029's "gated on M7" section, overridden 2026-08-02 to
+# build-now-deploy-incrementally): this service is built and
+# CI-verified in services' visualizer PR (backlog #82), but live sync
+# happens one M13 service at a time with a real `kubectl describe node`
+# headroom check immediately before each -- an auto-synced Application
+# would pull the (currently placeholder/invalid) image the moment this
+# manifest merges, exactly the all-at-once rollout this milestone's own
+# stated tradeoff rules out. A human runs `argocd app sync visualizer`
+# (or flips automated sync on in a follow-up PR) once the services PR
+# has merged, published a real image,
+# kubernetes/visualizer/deployment.yaml's placeholder image tag is
+# bumped to match, the visualizer-config Secret has been provisioned
+# (bootstrap/create-stateful-secrets.sh), aggregator's own Ingress/CORS
+# Middleware (kubernetes/aggregator/ingress.yaml, kubernetes/aggregator/
+# middlewares.yaml, this same PR) has already synced, and a fresh
+# headroom check clears it.
+#
+# Real node headroom, checked live immediately before this file was
+# written: 3045m/4000m (76%) CPU requested, ~955m free (under 1 core) --
+# same reading aggregator.yaml's own comment recorded (no live sync has
+# happened between that check and this one). visualizer's own container
+# is far lighter than any prior M13 service (deployment.yaml's own
+# resources comment: 50m/32Mi request, 250m/64Mi limit, a static-nginx
+# workload with no JVM/Python runtime of its own) -- fits this headroom
+# with real room to spare, but the same fresh-reading-at-actual-sync-time
+# discipline every other M13 Application states applies here too, not
+# this comment's now-stale number.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: visualizer
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/visualizer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: visualizer
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

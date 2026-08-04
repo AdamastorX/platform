@@ -5,17 +5,15 @@ metadata:
   labels:
     app: aggregator
 spec:
-  # ClusterIP only, same trust model as every other in-cluster service
-  # here (no auth between services, ADR 0010) -- reached at
-  # aggregator.aggregator.svc.cluster.local:80. No public Ingress here:
-  # #82 (visualizer) is the one real caller this API is for, and #82
-  # does not exist yet -- adding an Ingress/CORS config now, before a
-  # real caller exists to name a real origin for, would be exactly the
-  # build-ahead-of-need ADR 0021 rules out (the same "add one only when
-  # there's a real reason" bar watchlist-service's own service.yaml
-  # already states). Add the Ingress (and whatever CORS origin #82 needs,
-  # matching api's own VariantLookupController/clinvar-viewer precedent)
-  # in #82's own PR, once it's real.
+  # ClusterIP still -- this Service itself is unchanged (in-cluster
+  # Service DNS backs the real Ingress below, same shape api's own
+  # service.yaml/ingress.yaml pair already uses). backlog #82
+  # (visualizer) is now real: see ingress.yaml (new, this PR) for the
+  # public Ingress and middlewares.yaml (new, this PR) for the CORS
+  # config a real browser needs to call this from visualizer's own
+  # origin -- both were deliberately deferred out of this file until #82
+  # existed to name a real caller/origin for (ADR 0021, this file's own
+  # previous comment), not an oversight now being filled in.
   type: ClusterIP
   selector:
     app: aggregator

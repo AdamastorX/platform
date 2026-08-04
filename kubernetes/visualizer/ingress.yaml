@@ -1,0 +1,30 @@
+# Same adamastorx-ca/Traefik pattern api/grafana/prometheus/alertmanager/
+# clinvar-viewer already use (ADR 0021). This is the origin
+# aggregator's own aggregator-cors Middleware allowlist actually
+# references (platform/kubernetes/aggregator/middlewares.yaml) -- keep
+# the two in sync if this hostname ever changes.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: visualizer
+  labels:
+    app: visualizer
+  annotations:
+    cert-manager.io/cluster-issuer: adamastorx-ca
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: visualizer.local.adamastorx.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: visualizer
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - visualizer.local.adamastorx.test
+      secretName: visualizer-tls

@@ -142,6 +142,11 @@ create_ns clinvar-viewer
 # needs the namespace to exist before it can be created, on a fresh
 # cluster where that Application hasn't synced yet either.
 create_ns market-data-ingestor
+# backlog #82 (ADR 0029/M13): same reasoning again -- visualizer's own
+# Application (argocd/apps/visualizer.yaml) also sets
+# CreateNamespace=true, but the visualizer-config Secret below needs the
+# namespace to exist before it can be created.
+create_ns visualizer
 
 echo "==> postgresql (api namespace)"
 # Keys match the chart's auth.secretKeys defaults (adminPasswordKey,
@@ -299,4 +304,24 @@ else
   echo "==> secret/finnhub-api-key (ns market-data-ingestor) does NOT exist -- create it manually, see the comment above this line"
 fi
 
-echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror additions) present."
+echo "==> visualizer-config (visualizer namespace, backlog #82)"
+# Same "no backend of its own, so the Secret's payload is the literal
+# config.js file" reasoning as clinvar-viewer-api-key above (backlog
+# #56), extended to also carry the API base URL, not just a key: unlike
+# clinvar-viewer's app.js (which hardcodes api's hostname as a const,
+# since api predates clinvar-viewer and never changes), aggregator's own
+# hostname is new as of this item, so deploy time -- this Secret -- is
+# where it's actually defined, per backlog #82's own AC.
+#
+# No ADAMASTORX_API_KEY line: kubernetes/aggregator/ingress.yaml's own
+# comment records the real, stated decision that aggregator's Ingress
+# does not get backlog #56's api-key-auth middleware for this v1
+# (exactly one real caller, no second tenant to differentiate, no
+# observed abuse) -- so there is no key for this Secret to carry yet.
+# app.js's own ADAMASTORX_API_KEY `typeof` guard already handles that
+# absence the same way clinvar-viewer's app.js handles a missing key,
+# so nothing else needs to change the day a key is provisioned here.
+create_secret visualizer-config visualizer \
+  --from-literal=config.js='window.ADAMASTORX_API_BASE = "https://aggregator.local.adamastorx.test";'
+
+echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror, backlog #82 visualizer-config additions) present."

@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: visualizer
+  labels:
+    app: visualizer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: visualizer
+  template:
+    metadata:
+      labels:
+        app: visualizer
+    spec:
+      containers:
+        - name: visualizer
+          # Image tag is the services repo's commit SHA (ADR 0008/0009)
+          # -- bump this one line and open a PR to deploy a new build.
+          # backlog #82: this build must include services/visualizer's
+          # app.js/index.html config.js-consuming code for the mount
+          # below to have any effect (same merge-order note clinvar-viewer's
+          # own deployment.yaml states for backlog #56 -- see this PR's
+          # description).
+          #
+          # PLACEHOLDER -- not a real published image yet, same
+          # REPLACE_WITH_REAL_MERGE_SHA convention #79/#81's own first
+          # platform PRs used (kubernetes/news-ingestor/deployment.yaml,
+          # kubernetes/aggregator/deployment.yaml's own git history). A
+          # human swaps this for the real ghcr.io/adamastorx/visualizer
+          # SHA once services' visualizer PR has merged and published a
+          # real image, immediately before running a fresh
+          # `kubectl describe node` headroom check and syncing (see
+          # argocd/apps/visualizer.yaml's own comment).
+          image: ghcr.io/adamastorx/visualizer:REPLACE_WITH_REAL_MERGE_SHA
+          ports:
+            - name: http
+              containerPort: 8080
+          # Static nginx, no external dependency to check -- the
+          # container's own listen socket is the whole health signal,
+          # same as clinvar-viewer's own deployment.yaml.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          # Sizing reasoning (not copied blindly, per this item's own
+          # discipline -- but it does land on the exact same numbers
+          # clinvar-viewer's own first deploy used, because the
+          # underlying shape really is the same): this is the identical
+          # container shape as clinvar-viewer -- nginx serving a handful
+          # of small static files (index.html/style.css/app.js, a few
+          # KB each) to whatever browser tabs a human actually opens.
+          # Chart.js itself (unlike clinvar-viewer's igv.js) is fetched
+          # by the *visitor's own browser* straight from jsdelivr's CDN,
+          # not proxied or rendered by this pod -- so this container's
+          # real runtime work is exactly what clinvar-viewer's is: serve
+          # a few static files, nothing else. No JVM heap, no Python
+          # interpreter, no per-request server-side computation -- the
+          # 15-minute-window polling loop and chart rendering both run
+          # in the visitor's browser, not here. 50m/32Mi request,
+          # 250m/64Mi limit (identical to clinvar-viewer/deployment.yaml)
+          # is therefore not a copy-paste default, it's the same real
+          # workload shape landing on the same real number.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 64Mi
+          volumeMounts:
+            # backlog #82: config.js rendered at deploy time from the
+            # visualizer-config Secret -- same deploy-time-mounted-file
+            # mechanism backlog #56 established for clinvar-viewer
+            # (subPath so it lands alongside the image's own baked-in
+            # index.html/style.css/app.js without overwriting them).
+            # Provisioning: bootstrap/create-stateful-secrets.sh.
+            # Carries ADAMASTORX_API_BASE (aggregator's real Ingress
+            # hostname) and, if one is ever provisioned,
+            # ADAMASTORX_API_KEY -- see kubernetes/aggregator/ingress.yaml's
+            # own comment for why no key is provisioned in this v1.
+            # Unlike clinvar-viewer's config.js (which carries only a
+            # key, since api's own hostname is a hardcoded const in
+            # clinvar-viewer's app.js), this one also carries the API
+            # base URL, per this item's own AC.
+            - name: visualizer-config
+              mountPath: /usr/share/nginx/html/config.js
+              subPath: config.js
+              readOnly: true
+      volumes:
+        - name: visualizer-config
+          secret:
+            secretName: visualizer-config
