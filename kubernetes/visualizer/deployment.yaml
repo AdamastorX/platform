@@ -18,22 +18,10 @@ spec:
         - name: visualizer
           # Image tag is the services repo's commit SHA (ADR 0008/0009)
           # -- bump this one line and open a PR to deploy a new build.
-          # backlog #82: this build must include services/visualizer's
-          # app.js/index.html config.js-consuming code for the mount
-          # below to have any effect (same merge-order note clinvar-viewer's
-          # own deployment.yaml states for backlog #56 -- see this PR's
-          # description).
           #
-          # PLACEHOLDER -- not a real published image yet, same
-          # REPLACE_WITH_REAL_MERGE_SHA convention #79/#81's own first
-          # platform PRs used (kubernetes/news-ingestor/deployment.yaml,
-          # kubernetes/aggregator/deployment.yaml's own git history). A
-          # human swaps this for the real ghcr.io/adamastorx/visualizer
-          # SHA once services' visualizer PR has merged and published a
-          # real image, immediately before running a fresh
-          # `kubectl describe node` headroom check and syncing (see
-          # argocd/apps/visualizer.yaml's own comment).
-          image: ghcr.io/adamastorx/visualizer:REPLACE_WITH_REAL_MERGE_SHA
+          # Real tag: services#54 merged (squash), build-publish published
+          # this image for the real merge-commit SHA on services' main.
+          image: ghcr.io/adamastorx/visualizer:d52d496419571bb434e143b43329dd672d744afe
           ports:
             - name: http
               containerPort: 8080
