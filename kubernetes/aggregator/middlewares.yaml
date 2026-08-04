@@ -1,0 +1,40 @@
+# backlog #82 (visualizer): CORS enforcement for aggregator's new public
+# Ingress (ingress.yaml, this PR) -- same Traefik `headers` Middleware
+# type api-cors already proved live (kubernetes/api/middlewares.yaml),
+# reused here rather than reinvented (see ingress.yaml's own comment for
+# why this file does NOT also add api-key-auth/api-key-ratelimit
+# equivalents -- a stated, deliberate deferral, not an oversight).
+#
+# Order note (only one middleware here, but stated for consistency with
+# api-cors's own comment): a `headers` Middleware with
+# accessControlAllowOriginList answers a browser's CORS preflight
+# (OPTIONS) directly and stamps the real Access-Control-* headers on
+# every actual response through this Ingress -- both `/aggregates`
+# (visualizer's own polling target) and `/actuator/health` (this page's
+# own reachability signal, see app.js) get real CORS headers from this
+# one Middleware, since it's applied at the whole Ingress router, not
+# per-path.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: aggregator-cors
+  namespace: aggregator
+spec:
+  headers:
+    accessControlAllowMethods:
+      - GET
+      - OPTIONS
+    # No custom Authorization header allow-list entry: unlike api-cors
+    # (which must allow it, since clinvar-viewer's app.js always sends
+    # one), aggregator has no key provisioned for v1 (ingress.yaml's own
+    # comment) -- Content-Type/Accept cover what visualizer's app.js
+    # actually sends today. Extend this the same day an
+    # aggregator-key-auth Middleware is ever added (mirroring api-cors's
+    # own Authorization entry), not before.
+    accessControlAllowHeaders:
+      - Content-Type
+      - Accept
+    accessControlAllowOriginList:
+      - https://visualizer.local.adamastorx.test
+    accessControlMaxAge: 600
+    addVaryHeader: true

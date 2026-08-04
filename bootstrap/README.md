@@ -96,6 +96,19 @@ value -- `workload-generator`'s env var and `clinvar-viewer`'s mounted
 `config.js` are both read at pod start, not live-reloaded the way
 `workload-generator-config`'s rate ConfigMap is.
 
+## visualizer's config.js (backlog #82)
+
+Same "no backend of its own, so the Secret's payload is the literal
+`config.js` file" mechanism as `clinvar-viewer-api-key` above, extended
+to also carry the API base URL: `visualizer-config` (`visualizer`
+namespace) holds `window.ADAMASTORX_API_BASE = "https://aggregator.local.adamastorx.test";`
+-- no `ADAMASTORX_API_KEY` line, because `aggregator`'s own Ingress
+(`kubernetes/aggregator/ingress.yaml`) deliberately does not enable
+backlog #56's api-key-auth middleware for this v1 (see that file's own
+comment for the real, stated reasoning: exactly one real caller today,
+unlike `api`'s multi-tenant situation). Idempotent like every Secret
+above.
+
 ## Re-bootstrap from zero
 
 Given a fresh k3s cluster (provisioned via `../terraform/`):

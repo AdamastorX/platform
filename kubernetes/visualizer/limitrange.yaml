@@ -1,0 +1,14 @@
+# platform#35 backstop, same reasoning as clinvar-viewer/limitrange.yaml
+# -- default matches visualizer's own container size, since it's the
+# only workload this namespace runs.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-cpu-limit
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 250m
+      defaultRequest:
+        cpu: 50m

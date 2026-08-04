@@ -1,0 +1,17 @@
+# platform#35: bounds total consumption of the `visualizer` namespace.
+# One tiny static-nginx Deployment, no other workload -- same shape and
+# same numbers as clinvar-viewer/resourcequota.yaml (see
+# deployment.yaml's own comment for why this container is genuinely the
+# same real workload shape, not just a copied default): sized with
+# rolling-update surge headroom (+1 replica) over the container's own
+# 250m/64Mi limit.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 200m
+    requests.memory: 128Mi
+    limits.cpu: 500m
+    limits.memory: 256Mi

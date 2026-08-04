@@ -1,0 +1,72 @@
+# backlog #82 (visualizer): aggregator's first public Ingress. Same
+# adamastorx-ca/Traefik pattern api/grafana/prometheus/alertmanager/
+# clinvar-viewer already use (ADR 0021). A static page served to a real
+# browser can't resolve in-cluster Service DNS (aggregator.aggregator.
+# svc.cluster.local), so this Ingress -- not the existing ClusterIP
+# Service alone -- is what actually makes visualizer's real fetch calls
+# work, the same way clinvar-viewer reaches api through api's own
+# Ingress rather than its Service.
+#
+# Auth decision, stated plainly (ADR 0029 raised this explicitly as an
+# open question for this item to resolve, not left implicit): unlike
+# api, this Ingress does NOT get backlog #56's api-key-auth/
+# api-key-ratelimit Traefik middleware chain -- CORS only
+# (aggregator-cors, see middlewares.yaml). Reasoning:
+#
+#   - #56 existed because api had (and has) more than one real caller
+#     needing separate attribution/rate budgets -- clinvar-viewer (a
+#     manually-driven browser tab) AND workload-generator (a
+#     continuously-running synthetic-traffic pod), two genuinely
+#     different real traffic shapes sharing one public endpoint. That's
+#     the concrete trigger #56's own backlog text names, not "public
+#     endpoints get auth" as a blanket rule.
+#   - aggregator has exactly one real caller: visualizer, a single
+#     static page polled by however many browser tabs a human actually
+#     opens (see visualizer/app.js's own POLL_INTERVAL_MS reasoning --
+#     30s, nowhere near a rate worth budgeting). No second tenant, no
+#     abuse observed, no real trigger #56's own reasoning would apply
+#     here yet.
+#   - The data itself is a derived, aggregated view (15-minute
+#     tumbling-window price movement + rolling sentiment per ticker) --
+#     not the raw Finnhub tick stream ADR 0029's ToS caution is actually
+#     about, and not PII/clinical data the way api's ClinVar lookups
+#     are. Lower real stakes than the endpoint #56 was built for.
+#   - This is a deliberate, stated deferral (ADR 0021's "add one only
+#     when there's a real reason" bar, the same bar this file's own
+#     service.yaml already invoked to defer the whole Ingress until now)
+#     -- not a silently-dropped gap. If a second real caller ever shows
+#     up, or real scraping/abuse is ever observed, the exact same
+#     Traefik CRDs #56 already proved live (api-key-auth's basicAuth
+#     Middleware type, api-key-ratelimit's rateLimit type) apply here
+#     unchanged -- add an aggregator-key-auth/aggregator-key-ratelimit
+#     Middleware pair plus an aggregator-tenant-keys htpasswd Secret,
+#     same bootstrap/create-stateful-secrets.sh mechanism, and reference
+#     them on this annotation. No new pattern to invent when that day
+#     comes.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aggregator
+  labels:
+    app: aggregator
+  annotations:
+    cert-manager.io/cluster-issuer: adamastorx-ca
+    traefik.ingress.kubernetes.io/router.middlewares: >-
+      aggregator-aggregator-cors@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: aggregator.local.adamastorx.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aggregator
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - aggregator.local.adamastorx.test
+      secretName: aggregator-tls
