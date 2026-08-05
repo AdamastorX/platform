@@ -130,6 +130,30 @@ spec:
         # chart's own default.
         alloy:
           enabled: false
+        # Real UI (flame graphs, port 4040) had no Ingress since this
+        # Application's first deploy -- only reachable via port-forward,
+        # unlike every other browsable component here (Grafana/Prometheus/
+        # Alertmanager/ArgoCD/clinvar-viewer/aggregator/visualizer all
+        # already have one). Same adamastorx-ca/Traefik
+        # `*.local.adamastorx.test` pattern (ADR 0021), same schema
+        # confirmed against this chart's own real values.yaml/
+        # templates/ingress.yaml at the pinned 2.2.0 tag before writing
+        # this -- `hosts` is a plain string list (not per-host path
+        # objects some other charts use), and single-binary mode (this
+        # Application's own `pyroscope.components` default, microservices
+        # left off per the comment above) routes every path to the one
+        # `pyroscope` Service, so no path-splitting config is needed here.
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            cert-manager.io/cluster-issuer: adamastorx-ca
+          hosts:
+            - pyroscope.local.adamastorx.test
+          tls:
+            - secretName: pyroscope-tls
+              hosts:
+                - pyroscope.local.adamastorx.test
   destination:
     server: https://kubernetes.default.svc
     namespace: pyroscope
