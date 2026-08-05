@@ -47,9 +47,10 @@ and give it a `tls` section — ingress-shim creates and renews the
 ## Fixed local addresses, no more port-forward
 
 `api`, `grafana`, `prometheus`, `alertmanager`, `clinvar-viewer`,
-`aggregator`, `visualizer` (backlog #82, M13, ADR 0029), and `argocd`
-(the ArgoCD UI itself) each have a stable `*.local.adamastorx.test`
-Ingress (Traefik, hostPort 80/443, ADR 0005).
+`aggregator`, `visualizer` (backlog #82, M13, ADR 0029), `pyroscope`
+(backlog #57's real UI, no Ingress until now — port-forward only), and
+`argocd` (the ArgoCD UI itself) each have a stable
+`*.local.adamastorx.test` Ingress (Traefik, hostPort 80/443, ADR 0005).
 ArgoCD's own `argocd-server` terminates its own TLS and 307-redirects
 plain HTTP by default -- `server.insecure: "true"` (set in
 `bootstrap/install-argocd.sh`) makes it serve plain HTTP internally
@@ -75,7 +76,7 @@ confirmed live, no HSTS error, once the CA above is trusted.
 dedicated desktop host, per the roadmap note above):
 
 ```
-192.168.1.10 api.local.adamastorx.test grafana.local.adamastorx.test prometheus.local.adamastorx.test alertmanager.local.adamastorx.test clinvar-viewer.local.adamastorx.test aggregator.local.adamastorx.test visualizer.local.adamastorx.test argocd.local.adamastorx.test
+192.168.1.10 api.local.adamastorx.test grafana.local.adamastorx.test prometheus.local.adamastorx.test alertmanager.local.adamastorx.test clinvar-viewer.local.adamastorx.test aggregator.local.adamastorx.test visualizer.local.adamastorx.test pyroscope.local.adamastorx.test argocd.local.adamastorx.test
 ```
 
 **2. Trust the CA once**, instead of passing `--cacert adamastorx-ca.crt`
