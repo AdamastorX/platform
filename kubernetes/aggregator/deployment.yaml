@@ -54,7 +54,14 @@ spec:
           # gained priceAsOf/sentimentAsOf). RocksDB memory margin above
           # now covers 4 stores, not 2 -- see BoundedRocksDbConfigSetter's
           # own updated javadoc.
-          image: ghcr.io/adamastorx/aggregator:5de2ebabe6e42a9c9798903982fc9af8907b8781
+          # Real tag: services#57 -- closes backlog #85(b), the liveness-
+          # probe gap #85's own two real RocksDB incidents left open on
+          # purpose. New KafkaStreamsLivenessHealthIndicator fails
+          # /actuator/health/liveness only on the real, terminal
+          # KafkaStreams.State.ERROR (the exact state both #85 incidents
+          # hit while the pod stayed Healthy) -- readiness is untouched,
+          # this Deployment's own probe block does not change.
+          image: ghcr.io/adamastorx/aggregator:423cf443510417a36fe563115adf63ae8e5b1076
           ports:
             # Business API (GET /aggregates, GET /aggregates/{ticker})
             # AND actuator on the same port -- unlike
