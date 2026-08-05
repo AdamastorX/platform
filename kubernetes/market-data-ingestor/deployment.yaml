@@ -39,7 +39,10 @@ spec:
           #
           # Real tag: services#49 merged (squash), build-publish published
           # this image for the real merge-commit SHA on services' main.
-          image: ghcr.io/adamastorx/market-data-ingestor:85fc34820ef571b7ffa2a0734bca2abe5412c8bf
+          # Real tag: services#55 (REST-poll fallback for off-hours prices)
+          # merged, build-publish published this image for the real
+          # merge-commit SHA on services' main.
+          image: ghcr.io/adamastorx/market-data-ingestor:7d525464f3caf0096a8d9738eb9e72d6deccc78f
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # workers) -- this service has no business HTTP API for
