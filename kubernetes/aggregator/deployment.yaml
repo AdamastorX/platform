@@ -46,7 +46,15 @@ spec:
           # was actually opened against real traffic; the pod again
           # stayed Healthy throughout the crash). Stacked on services#52's
           # libstdc++ fix.
-          image: ghcr.io/adamastorx/aggregator:f83ff3aaac13f04d93f4781656ca8b96fe589a81
+          # Real tag: services#56 -- latest-known-state fallback so
+          # /aggregates stays populated across window boundaries instead
+          # of going empty the moment a 15-min tumbling window rolls with
+          # no new tick/score (two new non-windowed KTables, resolved
+          # independently per price/sentiment, TickerAggregateResponse
+          # gained priceAsOf/sentimentAsOf). RocksDB memory margin above
+          # now covers 4 stores, not 2 -- see BoundedRocksDbConfigSetter's
+          # own updated javadoc.
+          image: ghcr.io/adamastorx/aggregator:5de2ebabe6e42a9c9798903982fc9af8907b8781
           ports:
             # Business API (GET /aggregates, GET /aggregates/{ticker})
             # AND actuator on the same port -- unlike
