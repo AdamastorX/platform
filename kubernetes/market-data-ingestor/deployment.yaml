@@ -42,7 +42,12 @@ spec:
           # Real tag: services#55 (REST-poll fallback for off-hours prices)
           # merged, build-publish published this image for the real
           # merge-commit SHA on services' main.
-          image: ghcr.io/adamastorx/market-data-ingestor:7d525464f3caf0096a8d9738eb9e72d6deccc78f
+          # Real tag: services#58 (backlog #86(a)) -- every bare
+          # ex.toString()/ex.getMessage() exception log in this module
+          # now logs the real Throwable (full stack trace), closing the
+          # logging gap that hid the real 2026-08-03 NoClassDefFoundError
+          # incident for two days.
+          image: ghcr.io/adamastorx/market-data-ingestor:b3ef1566681811790c858e9ae4406a4c5b3e5866
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # workers) -- this service has no business HTTP API for
