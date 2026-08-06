@@ -109,6 +109,26 @@ comment for the real, stated reasoning: exactly one real caller today,
 unlike `api`'s multi-tenant situation). Idempotent like every Secret
 above.
 
+## ntfy alert topic (backlog #107)
+
+`ntfy-webhook-url` (`prometheus` namespace) holds the full
+`https://ntfy.sh/<topic>` URL Alertmanager's ntfy receiver posts to,
+read via `url_file` (`argocd/apps/prometheus.yaml`'s
+`alertmanager.extraSecretMounts`) rather than embedded in that
+git-tracked, public file — real incident found 2026-08-06: the topic
+name used to be committed there directly, defeating ntfy's own stated
+"not being guessable" protection in the same file that stated it.
+Idempotent like every Secret above, with the same one-time-visible
+caveat `api-tenant-keys`' smoke-test key has: **subscribe the ntfy
+app/website to the printed topic when this script creates it** —
+ntfy topics carry no recoverable secret, only a name, and there is no
+second chance to read it back after this step.
+
+**Rotating the ntfy topic**: delete the `ntfy-webhook-url` Secret and
+re-run this script (a fresh topic is generated); re-subscribe the ntfy
+app/website to the new topic before the old one is decommissioned, or
+alerts go silently unheard between the rotation and the resubscribe.
+
 ## Re-bootstrap from zero
 
 Given a fresh k3s cluster (provisioned via `../terraform/`):

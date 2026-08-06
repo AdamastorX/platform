@@ -147,6 +147,10 @@ create_ns market-data-ingestor
 # CreateNamespace=true, but the visualizer-config Secret below needs the
 # namespace to exist before it can be created.
 create_ns visualizer
+# backlog #107: prometheus's own Application also sets
+# CreateNamespace=true, but the ntfy-webhook-url Secret below needs the
+# namespace to exist first, same reasoning as every case above.
+create_ns prometheus
 
 echo "==> postgresql (api namespace)"
 # Keys match the chart's auth.secretKeys defaults (adminPasswordKey,
@@ -324,4 +328,24 @@ echo "==> visualizer-config (visualizer namespace, backlog #82)"
 create_secret visualizer-config visualizer \
   --from-literal=config.js='window.ADAMASTORX_API_BASE = "https://aggregator.local.adamastorx.test";'
 
-echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror, backlog #82 visualizer-config additions) present."
+echo "==> ntfy-webhook-url (prometheus namespace, backlog #107)"
+# Real incident: the ntfy topic used to be committed in plain text in
+# argocd/apps/prometheus.yaml's Alertmanager receiver config, in a
+# public repo, directly contradicting that same file's own stated
+# threat model ("ntfy topics are public-by-topic-name with no auth, so
+# the only protection is not being guessable"). Generated the same way
+# gen_api_key generates every other non-recoverable, non-guessable
+# credential here -- 16 random bytes, hex-encoded, prefixed for
+# readability in Alertmanager's own webhook_configs (url_file) target.
+# A human still has to subscribe the ntfy app/website to whatever topic
+# this generates before it's useful -- printed once below, the same
+# "write this down" pattern the api-tenant-keys smoke-test key above
+# uses, since ntfy topics can't be recovered from anywhere after this
+# point (they carry no secret to derive from, only a name to remember).
+create_secret ntfy-webhook-url prometheus \
+  --from-literal=url="https://ntfy.sh/adamastorx-alerts-$(openssl rand -hex 16)"
+if kubectl get secret ntfy-webhook-url -n prometheus -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null | grep -q "$(date -u +%Y-%m-%d)"; then
+  echo "==> ntfy topic (subscribe the ntfy app/website to this, write it down, it is not stored anywhere else): $(kubectl get secret ntfy-webhook-url -n prometheus -o jsonpath='{.data.url}' | base64 -d)"
+fi
+
+echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror, backlog #82 visualizer-config, backlog #107 ntfy-webhook-url additions) present."
