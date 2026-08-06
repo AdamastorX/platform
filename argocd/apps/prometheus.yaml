@@ -48,6 +48,27 @@ spec:
           # (backlog #21c). See prometheus.yaml's alertmanager.config
           # comment further down for why ntfy over Slack/Discord/
           # Telegram/PagerDuty/email.
+          #
+          # backlog #107: the ntfy topic name used to be committed here,
+          # in this exact receiver, directly contradicting the comment
+          # immediately below that states ntfy's own real threat model
+          # ("the only protection is not being guessable") -- found live
+          # 2026-08-06 reviewing a PR that read this same file. Fixed by
+          # mounting the topic's full URL from a Secret this project's
+          # existing out-of-band pattern provisions
+          # (bootstrap/create-stateful-secrets.sh, same shape as every
+          # other real credential here) and pointing Alertmanager's own
+          # `url_file` config key (mutually exclusive with `url`, a real
+          # upstream Alertmanager feature, not a chart-specific one) at
+          # the mounted file instead of embedding the value in this
+          # values block. The old topic is burned -- rotated, not
+          # reused, since it had been publicly readable in git history
+          # since this receiver first shipped.
+          extraSecretMounts:
+            - name: ntfy-webhook-url
+              mountPath: /etc/alertmanager-secrets
+              secretName: ntfy-webhook-url
+              readOnly: true
           config:
             global: {}
             route:
@@ -99,9 +120,14 @@ spec:
                 # closes). Topic name is a randomly-generated-once
                 # string, not a guessable/shared default -- ntfy topics
                 # are public-by-topic-name with no auth, so the only
-                # protection is not being guessable.
+                # protection is not being guessable. **The topic name
+                # itself must therefore never appear in this
+                # git-tracked, public file** (backlog #107, real
+                # incident: it did, for as long as this receiver has
+                # existed) -- `url_file` below reads it from the
+                # extraSecretMounts volume above instead.
                 webhook_configs:
-                  - url: https://ntfy.sh/adamastorx-alerts-64ec5a92c29196ad
+                  - url_file: /etc/alertmanager-secrets/url
                     send_resolved: true
         kube-state-metrics:
           enabled: false
