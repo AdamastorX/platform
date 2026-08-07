@@ -41,16 +41,29 @@
 # absent(kafka_consumer_fetch_manager_records_lag{job="workers"}) with
 # no way today to distinguish "KEDA correctly scaled to zero, nothing to
 # do" from "the consumer is stuck down, a real incident" -- kube-state-
-# metrics is disabled in this cluster (prometheus.yaml), so there is no
-# already-available signal to gate that alert on ScaledObject/HPA state
-# instead. Shipping scale-to-zero today would make that alert fire on
-# every normal quiet period, exactly the "must not fight or double-
-# count" failure backlog #63's own AC calls out -- not fixed cleanly in
-# this change, so left disabled rather than shipped broken. A real
-# follow-up (gate WorkersConsumerMissing on KEDA's own
-# keda_scaled_object_paused / an "intentionally scaled to zero" signal,
-# scraped per this chart's own Prometheus metrics, argocd/apps/keda.yaml)
-# is the honest way to enable it later, not attempted here.
+# metrics was disabled in this cluster when this decision was first
+# made, so there was no already-available signal to gate that alert on
+# ScaledObject/HPA state instead.
+#
+# Re-decided, not silently left stale (backlog #92, 2026-08-07): ksm is
+# now real and live -- confirmed against a running Prometheus that
+# kube_deployment_status_replicas{deployment="workers"} exists and
+# reads real values, which is in fact the gating signal this comment
+# originally wanted. **Still not adopting scale-to-zero in this same
+# change.** The blocker was never really "does a signal exist" so much
+# as "does the exact gating expression avoid the false-positive/false-
+# negative failure backlog #63's own AC calls out" -- e.g. a naive
+# `kube_deployment_status_replicas{deployment="workers"} > 0 and
+# absent(kafka_consumer_fetch_manager_records_lag{job="workers"})`
+# looks right but has a real race: KEDA setting desired replicas to 0
+# and the old pod actually terminating are not the same instant, so a
+# narrow window exists where replicas could transiently read a stale
+# non-zero value while the lag metric has already gone dark, a false
+# page. Getting this correctness-sensitive expression right deserves
+# its own real verification (a live chaos-style drill: watch both
+# signals through a real scale-to-zero transition and confirm no false
+# alert), not a same-day addition bolted onto an unrelated backlog
+# item. Tracked as its own follow-up rather than attempted here rushed.
 #
 # maxReplicaCount is 3, matching work-items' own partition count (ADR
 # 0011) -- the kafka scaler's own default behaviour already caps
