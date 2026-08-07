@@ -720,7 +720,7 @@ spec:
                   # states for its own number, just recalibrated to this
                   # pipeline's actual scale.
                   - alert: AggregatorConsumerLagHigh
-                    expr: sum(kafka_consumer_fetch_manager_records_lag{job="aggregator", topic=~"stock\.price\.tick|news\.sentiment\.scored"}) > 20
+                    expr: sum(kafka_consumer_fetch_manager_records_lag{job="aggregator", topic=~"stock\\.price\\.tick|news\\.sentiment\\.scored"}) > 20
                     for: 10m
                     labels:
                       severity: warning
@@ -729,7 +729,7 @@ spec:
                       description: "aggregator's stock.price.tick/news.sentiment.scored consumer backlog has stayed above 20 un-consumed records for 10m. Check `kubectl get pods -n aggregator` and recent logs for a stuck Kafka Streams thread (State.ERROR, see backlog #85(b)'s KafkaStreamsLivenessHealthIndicator, which should have already restarted a genuinely dead thread before this fires)."
 
                   - alert: AggregatorConsumerMissing
-                    expr: absent(kafka_consumer_fetch_manager_records_lag{job="aggregator", topic=~"stock\.price\.tick|news\.sentiment\.scored"})
+                    expr: absent(kafka_consumer_fetch_manager_records_lag{job="aggregator", topic=~"stock\\.price\\.tick|news\\.sentiment\\.scored"})
                     for: 3m
                     labels:
                       severity: critical
