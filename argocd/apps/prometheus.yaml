@@ -974,6 +974,50 @@ spec:
                     annotations:
                       summary: "A real public-edge probe has failed for 5m"
                       description: "probe_success is 0 for {{ $labels.instance }} (job {{ $labels.job }}) for 5m -- a real HTTP probe through the actual Ingress/TLS/routing chain, not a synthetic check. Reproduce directly: `curl --cacert adamastorx-ca.crt {{ $labels.instance }}` (add `-u blackbox:<key>` for the blackbox-http-2xx-auth job) and compare against what the failing module expects (2xx, or a real 401 for blackbox-http-401-expected). Check `kubectl get pods -n blackbox-exporter` and Traefik/cert-manager health before assuming the target service itself is down -- this probe crosses more real infrastructure (DNS via hostAliases, TLS termination, Ingress routing) than the target's own health check does."
+
+                  # backlog #91: the one SLO a streaming pipeline actually
+                  # needs -- freshness, not uptime. aggregator_price_freshness_seconds
+                  # (aggregator's own Kafka Streams topology, recorded as
+                  # each stock.price.tick is processed -- Micrometer
+                  # auto-appends "_seconds", see AggregatorTopology's own
+                  # comment) measures real trade-timestamp-to-processed
+                  # lag, tagged by source. Filtered to source="WEBSOCKET"
+                  # by construction, not by a separate exclusion clause --
+                  # market-data-ingestor's FinnhubQuotePoller REST-poll
+                  # fallback (source="POLL_FALLBACK") publishes onto this
+                  # same topic every 30 minutes, by design, specifically
+                  # to cover off-hours gaps; a naive unfiltered SLI would
+                  # see that real, correct 30-minute lag on every
+                  # fallback tick and either alert constantly (tight
+                  # threshold) or go meaningless during real market
+                  # hours (loose threshold) -- the exact trap this
+                  # item's own Purpose names, found during roadmap
+                  # review before this rule was written. The fallback's
+                  # own health has its own separate alert
+                  # (MarketDataStaleFeed above) and counters
+                  # (market_data_quote_poll_succeeded_total), not this
+                  # one.
+                  #
+                  # Threshold 30s, not derived from a real historical
+                  # distribution this cluster doesn't have yet (same
+                  # "deliberately simple v1 pick" every other SLO
+                  # threshold here states) -- a real websocket trade
+                  # tick's own path (Finnhub -> market-data-ingestor,
+                  # under 2s per backlog #78's AC -> Kafka produce/
+                  # consume -> aggregator's in-memory topology
+                  # processing) should sit at a small number of seconds
+                  # end to end on a healthy pipeline; 30s p95 sustained
+                  # for 10m is generous single-node-dev-cluster headroom
+                  # against real network/scheduling jitter, not a tight
+                  # production bound.
+                  - alert: AggregatorPriceFreshnessSlow
+                    expr: histogram_quantile(0.95, sum(rate(aggregator_price_freshness_seconds_bucket{source="WEBSOCKET"}[10m])) by (le)) > 30
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "Real-time trade ticks are taking over 30s (p95) to reach aggregator's own processing"
+                      description: "aggregator_price_freshness_seconds' p95, over websocket-sourced ticks only (source=\"WEBSOCKET\" -- the 30-minute REST-poll fallback is excluded by construction, not by a threshold), has stayed above 30s for 10m. Check market-data-ingestor's own market_data_tick_publish_latency_seconds (Finnhub-to-Kafka-send latency) first to isolate whether the delay is upstream of Kafka or in aggregator's own consumption/processing (kafka_consumer_fetch_manager_records_lag{job=\"aggregator\"}, AggregatorConsumerLagHigh above)."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
