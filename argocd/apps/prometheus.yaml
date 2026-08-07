@@ -129,10 +129,60 @@ spec:
                 webhook_configs:
                   - url_file: /etc/alertmanager-secrets/url
                     send_resolved: true
+        # backlog #92 (ADR 0031/M15, 2026-08-07): enabled -- the ADR
+        # 0014-era reasoning for leaving both off ("no K8s/host-level
+        # metrics needed yet") expired the day KEDA started making
+        # real scheduling decisions (backlog #63) and the day
+        # local-path's unenforced PVC quotas made the node disk the
+        # single most likely real outage (backlog #21d, unblocked by
+        # this change). Both subcharts ship `resources: {}` by default
+        # (confirmed against the real pinned chart versions'
+        # values.yaml, not assumed) -- explicit requests/limits set
+        # below, matching this project's own convention of never
+        # leaving a component unconstrained, sized as a first-deploy
+        # starting point (no real usage history for either yet, same
+        # "revisit with #77-style follow-up sampling" precedent every
+        # other first deploy here uses) against real, well-known
+        # footprints for these two specific, extremely thin components
+        # (a Go binary reading /proc and /sys for node-exporter; a
+        # single controller pod listing a handful of K8s objects for
+        # kube-state-metrics on a cluster this small). Real headroom
+        # checked live immediately before this change (see this
+        # backlog item's own PR description) -- both additions
+        # together are two orders of magnitude below what's actually
+        # free.
         kube-state-metrics:
-          enabled: false
+          enabled: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          # Real mistake caught by CI, not shipped: this chart's own
+          # Service template (templates/service.yaml) already emits
+          # `prometheus.io/scrape` unconditionally from a separate
+          # top-level `prometheusScrape` value (real default `true`,
+          # confirmed against the chart's own values.yaml) -- an
+          # explicit `service.annotations.prometheus.io/scrape: "true"`
+          # here duplicates that same key in the rendered map, which
+          # `helm-render`'s kubeconform check correctly rejected
+          # ("key ... already set in map") before this ever reached the
+          # live cluster. No override needed: the annotation is already
+          # on by default, unlike node-exporter's own Service, which
+          # gets the same annotation through its own, differently-named
+          # default (`prometheus.io/scrape: "true"` baked directly into
+          # its service.annotations default, confirmed separately).
         prometheus-node-exporter:
-          enabled: false
+          enabled: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
         prometheus-pushgateway:
           enabled: false
         # Two scrape mechanisms, deliberately (ADR 0014): api has a
