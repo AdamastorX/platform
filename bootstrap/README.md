@@ -109,6 +109,30 @@ comment for the real, stated reasoning: exactly one real caller today,
 unlike `api`'s multi-tenant situation). Idempotent like every Secret
 above.
 
+## Every Secret this script creates is protected from ArgoCD pruning (backlog #112)
+
+Found live 2026-08-07: every stateful chart's own real credential
+Secret (`postgresql`, `redis`, `kafka-kraft`, `grafana`,
+`clinvar-postgresql`, `watchlist-postgresql`) showed up in its owning
+Application's status as `requiresPruning: true` — once `existingSecret`
+is set (the migration this whole script exists for), the chart's own
+render no longer includes a Secret template, so ArgoCD's diff engine
+sees the real, live, out-of-band Secret as an orphan relative to the
+desired manifest. Never an active risk in practice (every Application
+here leaves `syncPolicy.automated.prune` unset, which defaults
+`false`), but a real, latent one: enabling `prune: true` on any of
+these Applications, or an explicit manual prune sync, would delete a
+live credential with no warning. `create_secret`'s own helper function
+now applies `argocd.argoproj.io/sync-options: Prune=false` to every
+Secret it creates — ArgoCD's own documented mechanism to always skip
+pruning a specific resource regardless of the app-level or
+operation-level prune setting. Verified live, not assumed from the
+docs: after annotating the five real Secrets already on the cluster, a
+real sync against each of their Applications reported
+`"status": "PruneSkipped", "message": "ignored (requires pruning)"` in
+its own `syncResult` — the actual sync-engine decision, not just the
+informational status flag.
+
 ## ntfy alert topic (backlog #107)
 
 `ntfy-webhook-url` (`prometheus` namespace) holds the full
