@@ -290,6 +290,25 @@ spec:
               - role: pod
                 namespaces:
                   names: ['sentiment-analyzer']
+          # aggregator (backlog #81, ADR 0029/M13): a seventh static
+          # target, same stable-Service-DNS reasoning as
+          # api/clinvar-service/watchlist-service above -- aggregator
+          # has a real Kubernetes Service (kubernetes/aggregator/
+          # service.yaml, unlike news-ingestor/market-data-ingestor/
+          # sentiment-analyzer, which have none per ADR 0009/0011).
+          # Found live during backlog #90 (ADR 0031/M15): aggregator
+          # was never actually added here in #81's/#56's own PRs --
+          # confirmed against a real running Prometheus
+          # (`up{job="aggregator"}` returned zero series, same
+          # never-scraped-at-all shape #21 already found and fixed once
+          # for clinvar-service, above) before writing any dashboard
+          # panel or alert rule against aggregator_*/kafka_streams_*
+          # metrics, since an unscraped metric's query would just
+          # silently return no data rather than error.
+          - job_name: aggregator
+            metrics_path: /actuator/prometheus
+            static_configs:
+              - targets: ['aggregator.aggregator.svc.cluster.local:80']
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
