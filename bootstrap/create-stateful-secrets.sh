@@ -87,6 +87,35 @@ create_secret() {
   fi
   echo "==> creating secret/$name (ns $ns)"
   kubectl create secret generic "$name" -n "$ns" "$@"
+  # backlog #112: found live -- every stateful chart's own real
+  # credential Secret (postgresql/redis/kafka-kraft/grafana/
+  # clinvar-postgresql/watchlist-postgresql) shows up in its owning
+  # Application's status as requiresPruning: true, a side effect of
+  # the existingSecret migration (platform#36) -- the chart's own
+  # render no longer includes a Secret template once existingSecret is
+  # set, so ArgoCD's diff engine sees this real, live, out-of-band
+  # Secret as an orphan relative to the desired manifest. Confirmed
+  # live this was never an active risk (every Application here leaves
+  # syncPolicy.automated.prune unset, which defaults false, so no
+  # automated sync has ever actually deleted anything) -- but it is a
+  # real, latent one: enabling prune on any of these Applications, or
+  # an explicit manual `prune: true` sync, would delete a live
+  # credential with no warning. This annotation is ArgoCD's own
+  # documented, real mechanism for exactly this case -- it instructs
+  # the sync engine to always skip pruning this specific resource,
+  # regardless of the app-level or operation-level prune setting.
+  # Verified live (not assumed from the docs): after applying this
+  # same annotation to the five real Secrets already on the cluster,
+  # a real sync against each of their Applications reported
+  # `"status": "PruneSkipped", "message": "ignored (requires
+  # pruning)"` in its own syncResult -- the actual sync-engine
+  # decision, not just the informational requiresPruning status flag.
+  # Applied here to every Secret this script creates, not just the
+  # six found today -- a harmless no-op for any Secret ArgoCD doesn't
+  # already track (like api-tenant-keys/visualizer-config below,
+  # which no chart ever renders a template for), and closes the gap
+  # for any future out-of-band Secret this pattern gets extended to.
+  kubectl annotate secret "$name" -n "$ns" argocd.argoproj.io/sync-options=Prune=false --overwrite
 }
 
 create_configmap() {
