@@ -359,6 +359,70 @@ spec:
             metrics_path: /actuator/prometheus
             static_configs:
               - targets: ['aggregator.aggregator.svc.cluster.local:80']
+          # Blackbox synthetic monitoring (backlog #93, ADR 0031/M15) --
+          # the standard Prometheus-side half of the blackbox_exporter
+          # pattern: Prometheus itself scrapes blackbox-exporter's own
+          # /probe endpoint, passing the real target URL as a query
+          # param via relabel_configs; blackbox-exporter (not
+          # Prometheus) makes the actual outbound HTTP request through
+          # the real Ingress/TLS chain (argocd/apps/blackbox-exporter.yaml's
+          # own comment has the real hostAliases/CA-trust reasoning).
+          # Three jobs, one per module, since each module probes a
+          # different real contract -- not folded into one job with a
+          # mixed target list, which would make the per-job `up`/
+          # `probe_success` series ambiguous about which check actually
+          # failed.
+          - job_name: blackbox-http-2xx
+            metrics_path: /probe
+            params:
+              module: [http_2xx]
+            static_configs:
+              - targets:
+                  - https://aggregator.local.adamastorx.test/aggregates
+                  - https://grafana.local.adamastorx.test/
+                  - https://visualizer.local.adamastorx.test/
+                  - https://clinvar-viewer.local.adamastorx.test/
+            relabel_configs:
+              - source_labels: [__address__]
+                target_label: __param_target
+              - source_labels: [__param_target]
+                target_label: instance
+              - target_label: __address__
+                replacement: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
+          # api's real auth contract, half 1: a real "blackbox" tenant
+          # key must produce a real 2xx on a real, side-effect-free GET.
+          - job_name: blackbox-http-2xx-auth
+            metrics_path: /probe
+            params:
+              module: [http_2xx_auth]
+            static_configs:
+              - targets:
+                  - https://api.local.adamastorx.test/work-items
+            relabel_configs:
+              - source_labels: [__address__]
+                target_label: __param_target
+              - source_labels: [__param_target]
+                target_label: instance
+              - target_label: __address__
+                replacement: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
+          # api's real auth contract, half 2: the identical path, no
+          # credential, must be rejected with a real 401 -- both halves
+          # together are the actual, real proof the auth chain works,
+          # not just "api responds to something."
+          - job_name: blackbox-http-401-expected
+            metrics_path: /probe
+            params:
+              module: [http_401_expected]
+            static_configs:
+              - targets:
+                  - https://api.local.adamastorx.test/work-items
+            relabel_configs:
+              - source_labels: [__address__]
+                target_label: __param_target
+              - source_labels: [__param_target]
+                target_label: instance
+              - target_label: __address__
+                replacement: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
         server:
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
@@ -859,6 +923,30 @@ spec:
                     annotations:
                       summary: "Node root filesystem below 10% free -- real risk to the node itself, not just this project's services"
                       description: "node_filesystem_avail_bytes{mountpoint=\"/\"} has stayed below 10% of node_filesystem_size_bytes for 15m. A full disk on this single-node cluster can break k3s/etcd itself, not just an individual PVC's owner. Same first response as NodeDiskSpaceLow, treated as urgent: identify and shrink/evict the largest real consumer immediately."
+
+                  # Blackbox synthetic probe failure (backlog #93). One
+                  # alert across all three blackbox jobs (job=~"blackbox-.*")
+                  # -- probe_success is the same real 0/1 signal
+                  # regardless of which module/target failed, and the
+                  # `instance` label on every series already names the
+                  # exact real URL that broke, so a human reading this
+                  # alert's own real labels (not just its summary text)
+                  # already knows which endpoint to check. `for: 5m`:
+                  # a single missed scrape (a real, transient network
+                  # blip between blackbox-exporter and Traefik) shouldn't
+                  # page; 5m of sustained failure through the real
+                  # TLS/Ingress/routing chain is what backlog #93's own
+                  # Purpose names -- continuous verification catching
+                  # what a one-time human curl would eventually notice
+                  # anyway, just faster.
+                  - alert: BlackboxProbeFailing
+                    expr: probe_success{job=~"blackbox-.*"} == 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "A real public-edge probe has failed for 5m"
+                      description: "probe_success is 0 for {{ $labels.instance }} (job {{ $labels.job }}) for 5m -- a real HTTP probe through the actual Ingress/TLS/routing chain, not a synthetic check. Reproduce directly: `curl --cacert adamastorx-ca.crt {{ $labels.instance }}` (add `-u blackbox:<key>` for the blackbox-http-2xx-auth job) and compare against what the failing module expects (2xx, or a real 401 for blackbox-http-401-expected). Check `kubectl get pods -n blackbox-exporter` and Traefik/cert-manager health before assuming the target service itself is down -- this probe crosses more real infrastructure (DNS via hostAliases, TLS termination, Ingress routing) than the target's own health check does."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
