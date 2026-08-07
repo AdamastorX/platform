@@ -28,6 +28,19 @@ spec:
     helm:
       valuesObject:
         fullnameOverride: grafana
+        # backlog #114: found live 2026-08-07 -- no resources block since
+        # this chart's first deploy (ADR 0014). Real measured usage
+        # (`kubectl top pod`) ~12m CPU/168Mi memory (dashboard rendering
+        # is the real memory driver here, not baseline idle) -- sized
+        # with headroom above that, same "never unconstrained" convention
+        # as every other component here.
+        resources:
+          requests:
+            cpu: 20m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 384Mi
         persistence:
           enabled: false
         # existingSecret migration (platform#36, extended here): admin

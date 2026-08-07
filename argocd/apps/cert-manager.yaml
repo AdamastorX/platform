@@ -19,6 +19,38 @@ spec:
       valuesObject:
         crds:
           enabled: true
+        # backlog #114: found live 2026-08-07 -- no resources block on
+        # any of the three real subcomponents since this chart's first
+        # deploy. Real measured usage (`kubectl top pod`) is tiny
+        # (controller ~3m/39Mi, cainjector ~1m/47Mi, webhook ~1m/24Mi) --
+        # sized with generous headroom anyway, same "never unconstrained"
+        # convention as every other component here. Keys confirmed via
+        # `helm show values` before writing this (controller is
+        # top-level `resources`; webhook/cainjector are each nested under
+        # their own block), not guessed from an unrelated chart's layout.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        webhook:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+        cainjector:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
