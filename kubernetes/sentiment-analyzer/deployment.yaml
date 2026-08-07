@@ -41,7 +41,12 @@ spec:
           # guarding the consumer loop against an uncaught scoring
           # exception), build-publish published this image for the real
           # merge-commit SHA on services' main.
-          image: ghcr.io/adamastorx/sentiment-analyzer:d112e37ffd61fc449ba76cb2fbc0d9e22c293a94
+          # Real tag: services#60 (backlog #90) -- adds the real
+          # sentiment_analyzer_consumer_lag Gauge, fed from librdkafka's
+          # own statistics.interval.ms/stats_cb (confluent-kafka's
+          # Python client has no automatic Prometheus lag export the
+          # way Micrometer's binders give the Java services for free).
+          image: ghcr.io/adamastorx/sentiment-analyzer:4693f6088c2d27afdbcb54515ab56e0932cd93a3
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # news-ingestor/market-data-ingestor/workers) -- this service
