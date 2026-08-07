@@ -2022,6 +2022,39 @@ spec:
                           "legendFormat": "heap used"
                         }
                       ]
+                    },
+                    {
+                      "id": 7,
+                      "title": "Freshness \u2014 real trade-timestamp-to-processed lag (websocket vs. poll-fallback)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 24,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum(rate(aggregator_price_freshness_seconds_bucket[$__rate_interval])) by (le, source))",
+                          "legendFormat": "p95 freshness ({{source}})"
+                        }
+                      ],
+                      "description": "backlog #91's own real freshness SLI, plotted split by source \u2014 deliberately not blended into one line. The websocket series should sit at a small number of seconds during real market hours; the poll_fallback series will show a real, by-design ~30-minute lag \u2014 that's the fallback doing its job, not a problem (see AggregatorPriceFreshnessSlow's own alert, which only ever evaluates the websocket series)."
                     }
                   ]
                 }
