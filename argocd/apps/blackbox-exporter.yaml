@@ -1,0 +1,155 @@
+# Blackbox synthetic monitoring of the public edge (backlog #93, ADR
+# 0031/M15). Every "verified live" in this project up to now has been a
+# one-time human/agent `curl` -- this converts point-in-time
+# verification into continuous verification, and generates probe-based
+# availability data independent of self-generated traffic. Would have
+# caught the real #56 post-merge `clinvar-viewer` stale-revision gap in
+# minutes instead of a human session.
+#
+# Version 11.16.0 (appVersion v0.28.0) -- current chart-repo head at
+# the time this was written, no reason to pin behind head for a
+# brand-new install (same reasoning `keda.yaml`'s own comment states
+# for itself). Values verified against the real chart before writing
+# this file (chart downloaded, values.yaml/templates read directly),
+# not assumed from docs.
+#
+# Own `blackbox-exporter` namespace, matching every other cluster-wide
+# infra component's own-namespace convention (ADR 0009 extended to
+# platform components, same reasoning cert-manager/KEDA/Traefik use).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blackbox-exporter
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-blackbox-exporter
+    targetRevision: 11.16.0
+    helm:
+      valuesObject:
+        fullnameOverride: blackbox-exporter
+        # Real, thin Go binary -- resources default to `{}` on this
+        # chart (confirmed against the real pinned version's
+        # values.yaml), never shipped unconstrained. Same sizing class
+        # as node-exporter (backlog #92): comparable footprint, a
+        # handful of outbound HTTP probes every scrape interval, not a
+        # sustained workload.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 32Mi
+        # This cluster's `*.local.adamastorx.test` hostnames only
+        # resolve via the operator's own laptop /etc/hosts (ADR 0004:
+        # no public/in-cluster DNS for them) -- a pod running inside
+        # the cluster has no other way to reach them by name. Real,
+        # native Kubernetes mechanism (PodSpec.hostAliases, not a
+        # custom CoreDNS rewrite rule, which would be a second, less
+        # obvious place this same mapping could drift from
+        # cert-manager-issuers/README.md's own canonical list) --
+        # points every probed hostname at Traefik's real ClusterIP
+        # (confirmed live via `kubectl get svc -n traefik traefik`, not
+        # assumed stable across a chart upgrade -- revisit if Traefik's
+        # own Service is ever recreated with a different ClusterIP).
+        # Traefik's own Host-header-based IngressRoute matching (ADR
+        # 0005) then routes each probe to the right backend exactly as
+        # it would for a real browser, so this is a genuine end-to-end
+        # probe through the real Ingress/TLS/routing chain, not a
+        # shortcut to each Service's in-cluster DNS.
+        hostAliases:
+          - ip: 10.43.225.45
+            hostNames:
+              - api.local.adamastorx.test
+              - aggregator.local.adamastorx.test
+              - grafana.local.adamastorx.test
+              - visualizer.local.adamastorx.test
+              - clinvar-viewer.local.adamastorx.test
+        # Real TLS validation against this cluster's own private CA
+        # (ADR 0004/0005), not `insecure_skip_verify` -- a probe that
+        # can't tell a real cert-manager renewal failure from "TLS is
+        # fine" would be worse than no probe. Same adamastorx-ca
+        # ConfigMap mirror pattern workload-generator already
+        # established (backlog #56, bootstrap/create-stateful-secrets.sh)
+        # rather than a second mechanism -- the CA cert is public data
+        # (literally already served to every TLS client that connects),
+        # a ConfigMap not a Secret, mirrored into this namespace too.
+        extraConfigmapMounts:
+          - name: adamastorx-ca
+            mountPath: /etc/blackbox-ca/
+            configMap: adamastorx-ca
+            readOnly: true
+        # blackbox-api-key holds the real "blackbox" tenant's raw API
+        # key for the one authenticated probe below -- provisioned
+        # out-of-band (bootstrap/README.md, same pattern as every other
+        # real credential here), never committed. blackbox_exporter's
+        # own config supports reading a credential from a mounted file
+        # at probe time (basic_auth.password_file, confirmed against
+        # the real upstream CONFIGURATION.md) specifically so this
+        # value never needs to appear in this git-tracked valuesObject.
+        extraSecretMounts:
+          - name: blackbox-api-key
+            mountPath: /etc/blackbox-secrets
+            secretName: blackbox-api-key
+            readOnly: true
+        config:
+          modules:
+            # Unauthenticated static frontends / aggregator's public,
+            # no-auth-chain endpoint (kubernetes/aggregator/ingress.yaml's
+            # own comment: exactly one real caller today, CORS-only).
+            http_2xx:
+              prober: http
+              timeout: 5s
+              http:
+                valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+                follow_redirects: true
+                preferred_ip_protocol: "ip4"
+                tls_config:
+                  ca_file: /etc/blackbox-ca/ca.crt
+            # api's real auth contract, half 1: a real request WITH a
+            # valid "blackbox" tenant key must succeed. Same Basic-auth
+            # shape (`Authorization: Basic base64(tenant:key)`) Traefik's
+            # api-key-auth middleware expects (kubernetes/api/middlewares.yaml,
+            # backlog #56) -- blackbox_exporter's own basic_auth module
+            # option produces exactly that header.
+            http_2xx_auth:
+              prober: http
+              timeout: 5s
+              http:
+                valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+                follow_redirects: true
+                preferred_ip_protocol: "ip4"
+                tls_config:
+                  ca_file: /etc/blackbox-ca/ca.crt
+                basic_auth:
+                  username: blackbox
+                  password_file: /etc/blackbox-secrets/api-key
+            # api's real auth contract, half 2: the identical path,
+            # deliberately called with NO Authorization header, must be
+            # rejected with a real 401 -- both halves are "the contract"
+            # per this item's own AC, not just "api responds to
+            # something."
+            http_401_expected:
+              prober: http
+              timeout: 5s
+              http:
+                valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+                valid_status_codes: [401]
+                follow_redirects: true
+                preferred_ip_protocol: "ip4"
+                tls_config:
+                  ca_file: /etc/blackbox-ca/ca.crt
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: blackbox-exporter
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
