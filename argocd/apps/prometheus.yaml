@@ -129,10 +129,60 @@ spec:
                 webhook_configs:
                   - url_file: /etc/alertmanager-secrets/url
                     send_resolved: true
+        # backlog #92 (ADR 0031/M15, 2026-08-07): enabled -- the ADR
+        # 0014-era reasoning for leaving both off ("no K8s/host-level
+        # metrics needed yet") expired the day KEDA started making
+        # real scheduling decisions (backlog #63) and the day
+        # local-path's unenforced PVC quotas made the node disk the
+        # single most likely real outage (backlog #21d, unblocked by
+        # this change). Both subcharts ship `resources: {}` by default
+        # (confirmed against the real pinned chart versions'
+        # values.yaml, not assumed) -- explicit requests/limits set
+        # below, matching this project's own convention of never
+        # leaving a component unconstrained, sized as a first-deploy
+        # starting point (no real usage history for either yet, same
+        # "revisit with #77-style follow-up sampling" precedent every
+        # other first deploy here uses) against real, well-known
+        # footprints for these two specific, extremely thin components
+        # (a Go binary reading /proc and /sys for node-exporter; a
+        # single controller pod listing a handful of K8s objects for
+        # kube-state-metrics on a cluster this small). Real headroom
+        # checked live immediately before this change (see this
+        # backlog item's own PR description) -- both additions
+        # together are two orders of magnitude below what's actually
+        # free.
         kube-state-metrics:
-          enabled: false
+          enabled: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          # Real, live-checked asymmetry between the two subcharts:
+          # prometheus-node-exporter's own Service ships
+          # `prometheus.io/scrape: "true"` by default (confirmed
+          # against its real values.yaml), so the existing
+          # kubernetes-service-endpoints job below already picks it up
+          # for free. kube-state-metrics' own Service does not (its
+          # `service.annotations` defaults to `{}`) -- without this,
+          # it would deploy successfully and report nothing scraped,
+          # the exact "enabled but silently not wired" shape this
+          # project's own discipline checks against a live Prometheus
+          # before calling anything done.
+          service:
+            annotations:
+              prometheus.io/scrape: "true"
         prometheus-node-exporter:
-          enabled: false
+          enabled: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
         prometheus-pushgateway:
           enabled: false
         # Two scrape mechanisms, deliberately (ADR 0014): api has a
