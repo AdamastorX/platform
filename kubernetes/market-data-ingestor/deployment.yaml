@@ -47,7 +47,10 @@ spec:
           # now logs the real Throwable (full stack trace), closing the
           # logging gap that hid the real 2026-08-03 NoClassDefFoundError
           # incident for two days.
-          image: ghcr.io/adamastorx/market-data-ingestor:b3ef1566681811790c858e9ae4406a4c5b3e5866
+          # Real tag: services#61 -- backlog #91, StockPriceTick gets a
+          # TickSource field (WEBSOCKET/POLL_FALLBACK) so aggregator's own
+          # freshness SLI can exclude this module's REST-poll fallback.
+          image: ghcr.io/adamastorx/market-data-ingestor:6efde187dbce6fa7bd84d27e9d9f1b757e36add3
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # workers) -- this service has no business HTTP API for
