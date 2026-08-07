@@ -1134,6 +1134,884 @@ spec:
                     }
                   ]
                 }
+            market-data-ingestor-golden-signals:
+              json: |
+                {
+                  "uid": "market-data-ingestor-golden-signals",
+                  "title": "market-data-ingestor \u2014 Golden Signals",
+                  "tags": [
+                    "golden-signals",
+                    "market-data-ingestor",
+                    "M13"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Traffic \u2014 ticks published rate (websocket + REST fallback)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(market_data_ticks_published_total{job=\"market-data-ingestor\"}[$__rate_interval]))",
+                          "legendFormat": "websocket ticks/s"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(market_data_quote_ticks_published_total{job=\"market-data-ingestor\"}[$__rate_interval]))",
+                          "legendFormat": "REST-fallback ticks/s"
+                        }
+                      ],
+                      "description": "Two real, independent publish paths onto the same stock.price.tick topic (backlog #78 websocket, backlog #87 REST-poll fallback) -- plotted separately since a healthy fallback flowing while the websocket is silent is a real, not confused, distinct signal."
+                    },
+                    {
+                      "id": 2,
+                      "title": "Latency \u2014 p95 tick publish duration (websocket path)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum(rate(market_data_tick_publish_latency_seconds_bucket{job=\"market-data-ingestor\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 receipt-to-publish"
+                        }
+                      ],
+                      "description": "backlog #78's own AC bound: under 2s receipt-to-publish. Real histogram, confirmed present on a live /actuator/prometheus scrape before this panel was written."
+                    },
+                    {
+                      "id": 3,
+                      "title": "Errors \u2014 publish/connect/poll failure rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(market_data_ticks_publish_failed_total{job=\"market-data-ingestor\"}[$__rate_interval]))",
+                          "legendFormat": "publish failed"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(market_data_websocket_connect_failures_total{job=\"market-data-ingestor\"}[$__rate_interval]))",
+                          "legendFormat": "websocket connect failed"
+                        },
+                        {
+                          "refId": "C",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(market_data_quote_poll_failed_total{job=\"market-data-ingestor\"}[$__rate_interval]))",
+                          "legendFormat": "REST poll failed"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 4,
+                      "title": "Saturation \u2014 JVM heap used",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 6,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percentunit",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "yellow",
+                                "value": 0.7
+                              },
+                              {
+                                "color": "red",
+                                "value": 0.9
+                              }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(jvm_memory_used_bytes{job=\"market-data-ingestor\", area=\"heap\"}) / sum(jvm_memory_max_bytes{job=\"market-data-ingestor\", area=\"heap\"})",
+                          "legendFormat": "heap used"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 5,
+                      "title": "Freshness \u2014 seconds since last real tick (any watchlisted ticker)",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 18,
+                        "y": 8,
+                        "w": 6,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "max(market_data_seconds_since_last_tick{job=\"market-data-ingestor\"})",
+                          "legendFormat": "max staleness"
+                        }
+                      ],
+                      "description": "The same real gauge MarketDataStaleFeed alerts on (backlog #78) -- already bakes the US-market-hours check into its own value, so after-hours/weekend silence reads as real elapsed time here without implying an incident."
+                    }
+                  ]
+                }
+            news-ingestor-golden-signals:
+              json: |
+                {
+                  "uid": "news-ingestor-golden-signals",
+                  "title": "news-ingestor \u2014 Golden Signals",
+                  "tags": [
+                    "golden-signals",
+                    "news-ingestor",
+                    "M13"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Traffic \u2014 feed poll outcomes",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(news_ingestor_feed_poll_total{job=\"news-ingestor\", outcome=\"succeeded\"}[$__rate_interval]))",
+                          "legendFormat": "succeeded"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(news_ingestor_articles_total{job=\"news-ingestor\", outcome=\"matched\"}[$__rate_interval]))",
+                          "legendFormat": "articles matched"
+                        },
+                        {
+                          "refId": "C",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(news_ingestor_articles_total{job=\"news-ingestor\", outcome=\"published\"}[$__rate_interval]))",
+                          "legendFormat": "articles published"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "Latency \u2014 average poll-cycle duration",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(tasks_scheduled_execution_seconds_sum{job=\"news-ingestor\"}[$__rate_interval])) / sum(rate(tasks_scheduled_execution_seconds_count{job=\"news-ingestor\"}[$__rate_interval]))",
+                          "legendFormat": "avg poll duration"
+                        }
+                      ],
+                      "description": "Boot's own @Scheduled instrumentation (tasks_scheduled_execution_seconds) -- an average, not a p95: no custom histogram exists for this cycle, and this framework-provided timer only exposes sum/count/max, the same real gap ADR 0020's own SLO table states for this service rather than presenting a percentile that isn't real."
+                    },
+                    {
+                      "id": 3,
+                      "title": "Errors \u2014 feed unreachable rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(news_ingestor_feed_poll_total{job=\"news-ingestor\", outcome=\"unreachable\"}[$__rate_interval]))",
+                          "legendFormat": "feed unreachable"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 4,
+                      "title": "Saturation \u2014 JVM heap used",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percentunit",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "yellow",
+                                "value": 0.7
+                              },
+                              {
+                                "color": "red",
+                                "value": 0.9
+                              }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(jvm_memory_used_bytes{job=\"news-ingestor\", area=\"heap\"}) / sum(jvm_memory_max_bytes{job=\"news-ingestor\", area=\"heap\"})",
+                          "legendFormat": "heap used"
+                        }
+                      ]
+                    }
+                  ]
+                }
+            sentiment-analyzer-golden-signals:
+              json: |
+                {
+                  "uid": "sentiment-analyzer-golden-signals",
+                  "title": "sentiment-analyzer \u2014 Golden Signals",
+                  "tags": [
+                    "golden-signals",
+                    "sentiment-analyzer",
+                    "M13"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Traffic \u2014 articles consumed / events published rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(sentiment_analyzer_articles_consumed_total{job=\"sentiment-analyzer\"}[$__rate_interval]))",
+                          "legendFormat": "articles consumed"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(sentiment_analyzer_events_published_total{job=\"sentiment-analyzer\"}[$__rate_interval]))",
+                          "legendFormat": "scored events published"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "Latency \u2014 p95 VADER scoring duration",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum(rate(sentiment_analyzer_scoring_duration_seconds_bucket{job=\"sentiment-analyzer\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 scoring duration"
+                        }
+                      ],
+                      "description": "The AC's own stated minimum metric (articles-consumed, events-published, scoring-latency) -- a real histogram, this project's first Python Kafka consumer's own scoring-latency signal."
+                    },
+                    {
+                      "id": 3,
+                      "title": "Errors \u2014 consume/publish failure rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(sentiment_analyzer_consume_errors_total{job=\"sentiment-analyzer\"}[$__rate_interval]))",
+                          "legendFormat": "consume errors"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(sentiment_analyzer_publish_errors_total{job=\"sentiment-analyzer\"}[$__rate_interval]))",
+                          "legendFormat": "publish errors"
+                        }
+                      ],
+                      "description": "Two real, distinct failure modes (metrics.py's own docstring) -- a consume/parse failure and a publish failure, not folded into one generic error counter."
+                    },
+                    {
+                      "id": 4,
+                      "title": "Saturation \u2014 process resident memory",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 6,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "bytes"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(process_resident_memory_bytes{job=\"sentiment-analyzer\"})",
+                          "legendFormat": "RSS"
+                        }
+                      ],
+                      "description": "No JVM heap here (this project's first Python Kafka consumer) -- prometheus_client's own default ProcessCollector RSS stands in as the saturation-adjacent signal, confirmed live present before this panel was written."
+                    },
+                    {
+                      "id": 5,
+                      "title": "Saturation \u2014 consumer lag (news.article.published)",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 18,
+                        "y": 8,
+                        "w": 6,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "yellow",
+                                "value": 10
+                              },
+                              {
+                                "color": "red",
+                                "value": 20
+                              }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(sentiment_analyzer_consumer_lag{job=\"sentiment-analyzer\"})",
+                          "legendFormat": "lag"
+                        }
+                      ],
+                      "description": "backlog #90's own new metric (librdkafka stats_cb) -- the same real signal SentimentAnalyzerConsumerLagHigh alerts on, plotted here too so a human sees the trend before it crosses the alert threshold."
+                    }
+                  ]
+                }
+            aggregator-golden-signals:
+              json: |
+                {
+                  "uid": "aggregator-golden-signals",
+                  "title": "aggregator \u2014 Golden Signals",
+                  "tags": [
+                    "golden-signals",
+                    "aggregator",
+                    "M13"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Traffic \u2014 GET /aggregates request rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_requests_seconds_count{job=\"aggregator\", uri=~\"/aggregates.*\"}[$__rate_interval]))",
+                          "legendFormat": "requests/s"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "Latency \u2014 p95 request duration",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"aggregator\", uri=~\"/aggregates.*\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 duration"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "title": "Errors \u2014 total vs. server-error request rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_requests_seconds_count{job=\"aggregator\", uri=~\"/aggregates.*\"}[$__rate_interval]))",
+                          "legendFormat": "total"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_requests_seconds_count{job=\"aggregator\", uri=~\"/aggregates.*\", outcome=\"SERVER_ERROR\"}[$__rate_interval]))",
+                          "legendFormat": "5xx errors"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 4,
+                      "title": "Saturation \u2014 state-restore duration (per store)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum(rate(aggregator_state_restore_duration_seconds_bucket{job=\"aggregator\"}[$__rate_interval])) by (le, store))",
+                          "legendFormat": "p95 restore duration"
+                        }
+                      ],
+                      "description": "backlog #81's own AC-required metric (StateRestoreMetrics) -- real per-store restore time on every restart, shipped but unplotted until this dashboard (this item's own Purpose finding). Real ~45s window measured in aggregator/README.md's StateStoreRecoveryTest."
+                    },
+                    {
+                      "id": 5,
+                      "title": "Saturation \u2014 consumer lag (real input topics only)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 16,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(kafka_consumer_fetch_manager_records_lag{job=\"aggregator\", topic=~\"stock\\\\.price\\\\.tick|news\\\\.sentiment\\\\.scored\"})",
+                          "legendFormat": "input-topic lag"
+                        }
+                      ],
+                      "description": "Same real, duplicate-series-filtered expression AggregatorConsumerLagHigh alerts on (backlog #90) -- the topic filter excludes both the internal state-store changelog/restore-consumer topics and Kafka's own mangled-underscore duplicate series, confirmed live before this panel was written."
+                    },
+                    {
+                      "id": 6,
+                      "title": "Saturation \u2014 JVM heap used",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 16,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percentunit",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "yellow",
+                                "value": 0.7
+                              },
+                              {
+                                "color": "red",
+                                "value": 0.9
+                              }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(jvm_memory_used_bytes{job=\"aggregator\", area=\"heap\"}) / sum(jvm_memory_max_bytes{job=\"aggregator\", area=\"heap\"})",
+                          "legendFormat": "heap used"
+                        }
+                      ]
+                    }
+                  ]
+                }
   destination:
     server: https://kubernetes.default.svc
     namespace: grafana
