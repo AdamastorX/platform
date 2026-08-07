@@ -43,6 +43,19 @@ spec:
           # restart actually causes a problem, not built ahead of that.
           persistence:
             enabled: false
+          # backlog #114: found live 2026-08-07 -- this subchart shipped
+          # with no resources block at all (unlike kube-state-metrics/
+          # node-exporter below, which already got one at #92). Real
+          # measured usage (`kubectl top pod`) is tiny (~2m CPU/14Mi
+          # mem) -- sized with generous headroom anyway, same "never
+          # unconstrained" convention as every other component here.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
           # Alertmanager's own config (not Prometheus's rule files, see
           # server.serverFiles below) -- one real receiver, ntfy.sh
           # (backlog #21c). See prometheus.yaml's alertmanager.config
@@ -424,6 +437,20 @@ spec:
               - target_label: __address__
                 replacement: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
         server:
+          # backlog #114: found live 2026-08-07 -- no resources block on
+          # the actual metrics-store/query pod, the largest real consumer
+          # of any component checked in that finding (measured 508-667Mi
+          # real memory, fluctuating with query load, against 0 declared
+          # requests -- the single biggest contributor to the node's
+          # real-vs-reported memory gap). Sized above the observed peak
+          # with real headroom for query bursts, not the peak itself.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
           # 3 days, not the chart's 15-day default: a single-node dev
           # cluster generating a handful of test requests per session
           # has no benefit from 15 days of mostly-empty series (ADR

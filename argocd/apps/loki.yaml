@@ -71,6 +71,21 @@ spec:
           replicas: 1
           persistence:
             size: 2Gi
+          # backlog #114: found live 2026-08-07 -- no resources block
+          # since this chart's first deploy (ADR 0015; only
+          # `singleBinary.resources` matters here -- read/write/backend
+          # below are all zeroed replicas, confirmed via `helm show
+          # values` before writing this rather than guessed). Real
+          # measured usage (`kubectl top pod`) ~14-19m CPU/179-186Mi
+          # memory -- sized with headroom above that, same "never
+          # unconstrained" convention as every other component here.
+          resources:
+            requests:
+              cpu: 20m
+              memory: 224Mi
+            limits:
+              cpu: 200m
+              memory: 448Mi
         # SimpleScalable-mode components -- must be explicitly zeroed
         # even with deploymentMode: Monolithic, or the chart's own
         # validation rejects the values (confirmed locally before

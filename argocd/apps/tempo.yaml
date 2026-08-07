@@ -30,6 +30,21 @@ spec:
           # it should stay correlatable for the same period, not the
           # chart's 24h default.
           retention: 72h
+          # backlog #114: found live 2026-08-07 -- no resources block
+          # since this chart's first deploy (ADR 0015; the chart's own
+          # real key is `tempo.resources`, not top-level, confirmed via
+          # `helm show values` before writing this -- not guessed from
+          # the values.yaml layout of an unrelated chart). Real measured
+          # usage (`kubectl top pod`) ~15m CPU/159Mi memory -- sized with
+          # headroom above that, same "never unconstrained" convention as
+          # every other component here.
+          resources:
+            requests:
+              cpu: 20m
+              memory: 192Mi
+            limits:
+              cpu: 200m
+              memory: 384Mi
         # A real PVC, not emptyDir -- trace data has continuity value
         # once persisted, same reasoning as Loki/Prometheus/Postgres.
         persistence:

@@ -17,6 +17,21 @@ spec:
     targetRevision: 41.0.2
     helm:
       valuesObject:
+        # backlog #114: found live 2026-08-07 -- no resources block since
+        # this chart's first deploy. Real measured usage (`kubectl top
+        # pod`) ~2-3m CPU/38Mi memory -- sized with generous headroom
+        # anyway (Traefik is the sole ingress path for every public
+        # hostname in this cluster; under-provisioning it has an
+        # outsized blast radius relative to its idle footprint), same
+        # "never unconstrained" convention as every other component
+        # here.
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 192Mi
         # No ServiceLB (k3s --disable servicelb) and no cloud LB: a
         # LoadBalancer Service would sit <pending> forever. Traffic enters
         # via hostPort below; the Service stays ClusterIP for in-cluster use.
