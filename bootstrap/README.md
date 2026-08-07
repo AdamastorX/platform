@@ -133,6 +133,36 @@ real sync against each of their Applications reported
 its own `syncResult` — the actual sync-engine decision, not just the
 informational status flag.
 
+## Blackbox exporter: CA mirror and the "blackbox" tenant key (backlog #93)
+
+Two real prerequisites for `blackbox-exporter`'s probes, one this
+script fully automates and one it deliberately does not:
+
+- `adamastorx-ca` ConfigMap mirrored into the `blackbox-exporter`
+  namespace too, same public-data mirror the workload-generator
+  section above already uses — automated, no manual step.
+- `blackbox-api-key` (`blackbox-exporter` namespace) holds the real
+  "blackbox" tenant's raw key for the `http_2xx_auth` probe module
+  against `api`'s real auth chain. **Not created by this script**: it
+  requires appending one new user to the *existing* `api-tenant-keys`
+  htpasswd body (backlog #56) without disturbing the tenants already
+  hashed into it, an operation this script's `create_secret` helper
+  isn't built for (it only knows "create if missing"). Real commands
+  (also in `create-stateful-secrets.sh`'s own comment, right above
+  where this Secret would be created):
+
+```sh
+blackbox_key="$(openssl rand -hex 24)"
+existing_users="$(kubectl get secret api-tenant-keys -n api -o jsonpath='{.data.users}' | base64 -d)"
+new_users="${existing_users}
+blackbox:$(openssl passwd -apr1 "$blackbox_key")"
+kubectl patch secret api-tenant-keys -n api --type merge \
+  -p "{\"data\":{\"users\":\"$(echo -n "$new_users" | base64 -w0)\"}}"
+kubectl create secret generic blackbox-api-key -n blackbox-exporter \
+  --from-literal=api-key="$blackbox_key"
+unset blackbox_key existing_users new_users
+```
+
 ## ntfy alert topic (backlog #107)
 
 `ntfy-webhook-url` (`prometheus` namespace) holds the full

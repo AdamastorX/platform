@@ -180,6 +180,10 @@ create_ns visualizer
 # CreateNamespace=true, but the ntfy-webhook-url Secret below needs the
 # namespace to exist first, same reasoning as every case above.
 create_ns prometheus
+# backlog #93: blackbox-exporter's own Application also sets
+# CreateNamespace=true, but the adamastorx-ca ConfigMap mirror and the
+# blackbox-api-key Secret below both need the namespace to exist first.
+create_ns blackbox-exporter
 
 echo "==> postgresql (api namespace)"
 # Keys match the chart's auth.secretKeys defaults (adminPasswordKey,
@@ -307,9 +311,45 @@ echo "==> adamastorx-ca ConfigMap mirror into workload-generator namespace (back
 if kubectl get secret adamastorx-root-ca -n cert-manager >/dev/null 2>&1; then
   ca_crt="$(kubectl get secret adamastorx-root-ca -n cert-manager -o jsonpath='{.data.ca\.crt}' | base64 -d)"
   create_configmap adamastorx-ca workload-generator --from-literal=ca.crt="$ca_crt"
+  # backlog #93: blackbox-exporter needs the exact same real CA trust
+  # for the exact same reason -- it probes the real public Ingress over
+  # HTTPS, through the cluster's own private CA, not a publicly-trusted
+  # one. Same public-data ConfigMap mirror, second namespace, not a
+  # second mechanism.
+  create_configmap adamastorx-ca blackbox-exporter --from-literal=ca.crt="$ca_crt"
   unset ca_crt
 else
   echo "==> adamastorx-root-ca Secret not found in cert-manager namespace yet -- skipping (re-run this script after cert-manager-issuers' Application has synced)"
+fi
+
+echo "==> blackbox-api-key (blackbox-exporter namespace, backlog #93) -- NOT created by this script"
+# Unlike every Secret this script does create above, this one holds a
+# real per-tenant credential that must be added to an *existing*
+# htpasswd body (api-tenant-keys, backlog #56) without disturbing the
+# tenants already hashed into it -- this script's own create_secret
+# helper only knows "create if missing," not "safely append one more
+# user to a Secret that already exists," so the addition is
+# documented here rather than silently attempted by a helper not built
+# for it. Real steps (also in bootstrap/README.md):
+#
+#   blackbox_key="$(openssl rand -hex 24)"
+#   existing_users="$(kubectl get secret api-tenant-keys -n api -o jsonpath='{.data.users}' | base64 -d)"
+#   new_users="${existing_users}
+#   blackbox:$(openssl passwd -apr1 "$blackbox_key")"
+#   kubectl patch secret api-tenant-keys -n api --type merge \
+#     -p "{\"data\":{\"users\":\"$(echo -n "$new_users" | base64 -w0)\"}}"
+#   kubectl create secret generic blackbox-api-key -n blackbox-exporter \
+#     --from-literal=api-key="$blackbox_key"
+#   unset blackbox_key existing_users new_users
+#
+# Already provisioned on this cluster (created out-of-band this
+# session) -- this note exists for a fresh/rebuilt cluster, where
+# blackbox-exporter's own http_2xx_auth probe will otherwise fail
+# authentication until this Secret exists.
+if kubectl get secret blackbox-api-key -n blackbox-exporter >/dev/null 2>&1; then
+  echo "==> secret/blackbox-api-key (ns blackbox-exporter) already exists -- leaving it untouched"
+else
+  echo "==> secret/blackbox-api-key (ns blackbox-exporter) does NOT exist -- create it manually, see the comment above this line"
 fi
 
 echo "==> finnhub-api-key (market-data-ingestor namespace, backlog #78) -- NOT created by this script"
@@ -377,4 +417,4 @@ if kubectl get secret ntfy-webhook-url -n prometheus -o jsonpath='{.metadata.cre
   echo "==> ntfy topic (subscribe the ntfy app/website to this, write it down, it is not stored anywhere else): $(kubectl get secret ntfy-webhook-url -n prometheus -o jsonpath='{.data.url}' | base64 -d)"
 fi
 
-echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror, backlog #82 visualizer-config, backlog #107 ntfy-webhook-url additions) present."
+echo "==> Done. All stateful Secrets (and the backlog #56 tenant-key/CA-mirror, backlog #82 visualizer-config, backlog #107 ntfy-webhook-url, backlog #93 blackbox-exporter CA-mirror additions) present."
