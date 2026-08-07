@@ -683,6 +683,87 @@ spec:
                     annotations:
                       summary: "Traefik is sustained-rejecting requests with 429 (rate limit)"
                       description: "traefik_entrypoint_requests_total{code=\"429\"} on the websecure entrypoint has averaged over 0.2/s for 5m. See kubernetes/api/middlewares.yaml's api-key-ratelimit for the per-tenant budget and docs/adr/0027 (adamastorx repo) for why this is entrypoint-wide rather than per-tenant today."
+
+                  # aggregator consumer lag (backlog #90, ADR 0031/M15) --
+                  # same WorkersConsumerLagHigh/WorkersConsumerMissing
+                  # pattern, scoped to aggregator's two real *input*
+                  # topics (stock.price.tick, news.sentiment.scored), not
+                  # the internal state-store changelog/restore-consumer
+                  # topics (aggregator-*-store-changelog) -- those spike
+                  # by design on every restart (StateStoreRecoveryTest's
+                  # own real ~45s window, aggregator/README.md) and are
+                  # already the state-restore-duration metric's job, not
+                  # this alert's.
+                  #
+                  # Real, live finding before this rule was written
+                  # (checked against a real running Prometheus, not
+                  # assumed from the metric name): Kafka's client metrics
+                  # reporter emits the SAME real lag twice per topic here
+                  # -- once tagged with the real dotted topic name
+                  # (topic="stock.price.tick") and once with a mangled
+                  # underscore variant (topic="stock_price_tick", dots
+                  # replaced) for reasons not further investigated. A
+                  # naive sum(...) over this metric would silently double
+                  # every real lag value. The `\.` (escaped literal dot,
+                  # not "any character") in this regex matches only the
+                  # real dotted topic names -- verified live that this
+                  # excludes the underscore duplicates before shipping,
+                  # not assumed from the regex alone.
+                  #
+                  # Threshold 20, not 500 (workers' own number): this
+                  # pipeline's real per-15-minute-window volume is a
+                  # handful to a few dozen ticks/scores per ticker
+                  # (backlog #87's own live-verified numbers), two
+                  # orders of magnitude below work-items' traffic --
+                  # "obviously abnormal for this cluster's real load",
+                  # the same non-historical reasoning WorkersConsumerLagHigh
+                  # states for its own number, just recalibrated to this
+                  # pipeline's actual scale.
+                  - alert: AggregatorConsumerLagHigh
+                    expr: sum(kafka_consumer_fetch_manager_records_lag{job="aggregator", topic=~"stock\.price\.tick|news\.sentiment\.scored"}) > 20
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "aggregator consumer lag sustained above 20 records on its real input topics"
+                      description: "aggregator's stock.price.tick/news.sentiment.scored consumer backlog has stayed above 20 un-consumed records for 10m. Check `kubectl get pods -n aggregator` and recent logs for a stuck Kafka Streams thread (State.ERROR, see backlog #85(b)'s KafkaStreamsLivenessHealthIndicator, which should have already restarted a genuinely dead thread before this fires)."
+
+                  - alert: AggregatorConsumerMissing
+                    expr: absent(kafka_consumer_fetch_manager_records_lag{job="aggregator", topic=~"stock\.price\.tick|news\.sentiment\.scored"})
+                    for: 3m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "aggregator consumer-lag metric missing on its real input topics -- consumer likely not running"
+                      description: "aggregator has reported no kafka_consumer_fetch_manager_records_lag series for stock.price.tick/news.sentiment.scored in 3m -- almost certainly the pod isn't running/scraped, not that lag is low. Check `kubectl get pods -n aggregator` directly. Same shape as backlog #76 / observability/chaos/03-consumer-lag.md, applied to aggregator's own consumer."
+
+                  # sentiment-analyzer consumer lag (backlog #90). Unlike
+                  # the Java services above, confluent-kafka's Python
+                  # client has no built-in Prometheus lag export --
+                  # sentiment_analyzer_consumer_lag (services PR, backlog
+                  # #90) is a real Gauge fed from librdkafka's own
+                  # statistics.interval.ms/stats_cb, not derived here.
+                  # Same 20-record threshold reasoning as
+                  # AggregatorConsumerLagHigh above -- this consumer's
+                  # real traffic (news.article.published) is comparably
+                  # small.
+                  - alert: SentimentAnalyzerConsumerLagHigh
+                    expr: sum(sentiment_analyzer_consumer_lag{job="sentiment-analyzer"}) > 20
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "sentiment-analyzer consumer lag sustained above 20 records"
+                      description: "sentiment-analyzer's news.article.published consumer backlog has stayed above 20 un-consumed records for 10m. Check `kubectl get pods -n sentiment-analyzer` and logs for a dead consumer thread (see SentimentConsumerWorker.is_alive()'s own docstring for the failure mode this is meant to catch)."
+
+                  - alert: SentimentAnalyzerConsumerMissing
+                    expr: absent(sentiment_analyzer_consumer_lag{job="sentiment-analyzer"})
+                    for: 3m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "sentiment-analyzer consumer-lag metric missing -- consumer likely not running"
+                      description: "sentiment-analyzer has reported no sentiment_analyzer_consumer_lag series for 3m -- almost certainly the pod isn't running/scraped, or the consumer thread died (SentimentConsumerWorker.is_alive() should have already made /healthz unhealthy before this fires). Check `kubectl get pods -n sentiment-analyzer` directly. Same shape as backlog #76 / observability/chaos/03-consumer-lag.md."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
