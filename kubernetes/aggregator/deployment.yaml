@@ -61,7 +61,11 @@ spec:
           # KafkaStreams.State.ERROR (the exact state both #85 incidents
           # hit while the pod stayed Healthy) -- readiness is untouched,
           # this Deployment's own probe block does not change.
-          image: ghcr.io/adamastorx/aggregator:423cf443510417a36fe563115adf63ae8e5b1076
+          # Real tag: services#61 -- backlog #91, real end-to-end pipeline
+          # freshness SLI (aggregator_price_freshness_seconds, tagged by
+          # source so the metric structurally excludes
+          # market-data-ingestor's 30-minute REST-poll fallback).
+          image: ghcr.io/adamastorx/aggregator:6efde187dbce6fa7bd84d27e9d9f1b757e36add3
           ports:
             # Business API (GET /aggregates, GET /aggregates/{ticker})
             # AND actuator on the same port -- unlike
