@@ -59,11 +59,24 @@ spec:
               cpu: 750m
               memory: 1536Mi
           persistence:
-            # Small single-node dev cluster, no durability requirement yet
-            # (ADR 0011 accepts topic data loss on restart) — emptyDir over
-            # a PVC keeps this dependency-free; revisit if that trade ever
-            # needs to change.
-            enabled: false
+            # ADR 0032 (backlog #95, 2026-08-07): reverses ADR 0011's own
+            # emptyDir choice, superseded rather than deleted (see that
+            # ADR's own correction note). Real, repeated incidents
+            # (#79/#80/#84) confirmed the revisit trigger ADR 0011 itself
+            # named: this system has grown to 6 application topics plus
+            # Kafka Streams' own internal changelog topics
+            # (aggregator's, created via its own embedded AdminClient,
+            # independent of this provisioning Job), and a broker
+            # restart on emptyDir wiped all of them, requiring a human
+            # to notice and manually re-sync this Application to
+            # re-provision. A real PVC survives a restart, closing that
+            # incident class at its root instead of papering over the
+            # provisioning Job's own re-run trigger. Chart default size
+            # (8Gi) and default StorageClass (local-path, same as every
+            # other stateful component here) -- real headroom checked
+            # live before this change (176GB free on the node, disk was
+            # never the constrained resource; CPU is, per backlog #77).
+            enabled: true
         # existingKraftSecret migration (platform#36) -- the chart used to
         # generate the KRaft cluster-id/controller-0-id pair into Secret
         # "kafka-kraft" via common.secrets.passwords.manage, same
