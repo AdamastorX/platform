@@ -34,17 +34,23 @@ spec:
           # since this chart's first deploy (ADR 0015; the chart's own
           # real key is `tempo.resources`, not top-level, confirmed via
           # `helm show values` before writing this -- not guessed from
-          # the values.yaml layout of an unrelated chart). Real measured
-          # usage (`kubectl top pod`) ~15m CPU/159Mi memory -- sized with
-          # headroom above that, same "never unconstrained" convention as
-          # every other component here.
+          # the values.yaml layout of an unrelated chart). First attempt
+          # sized only against steady-state `kubectl top pod` (~15m
+          # CPU/159Mi memory) at a 384Mi limit -- real CrashLoopBackOff
+          # (exit 137) live within ~15s of every start, landing right at
+          # the WAL-replay-then-block-flush/compaction step the startup
+          # log shows, not steady state -- the same "measured steady
+          # state isn't measured peak" lesson backlog #35 already taught
+          # for `api`'s JVM cold start, now confirmed for Tempo's own
+          # startup compaction burst. Limit raised well above that burst
+          # rather than nudged incrementally guess-by-guess.
           resources:
             requests:
               cpu: 20m
               memory: 192Mi
             limits:
               cpu: 200m
-              memory: 384Mi
+              memory: 768Mi
         # A real PVC, not emptyDir -- trace data has continuity value
         # once persisted, same reasoning as Loki/Prometheus/Postgres.
         persistence:
