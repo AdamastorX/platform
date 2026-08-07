@@ -814,6 +814,51 @@ spec:
                     annotations:
                       summary: "sentiment-analyzer consumer-lag metric missing -- consumer likely not running"
                       description: "sentiment-analyzer has reported no sentiment_analyzer_consumer_lag series for 3m -- almost certainly the pod isn't running/scraped, or the consumer thread died (SentimentConsumerWorker.is_alive() should have already made /healthz unhealthy before this fires). Check `kubectl get pods -n sentiment-analyzer` directly. Same shape as backlog #76 / observability/chaos/03-consumer-lag.md."
+
+                  # Node disk capacity (backlog #21d, unblocked by #92 --
+                  # node_filesystem_avail_bytes did not exist as a
+                  # scraped metric until kube-state-metrics/node-exporter
+                  # were enabled this same day). Every PVC on this
+                  # cluster (both Postgres instances, Loki, Tempo,
+                  # clinvar-service's refdata, Prometheus's own,
+                  # Kafka's new one per ADR 0032) uses the `local-path`
+                  # StorageClass, confirmed to enforce no storage quota
+                  # -- a PVC's requests.storage is advisory only, so
+                  # unbounded growth on any one of them silently eats
+                  # this single node's real, shared disk with no
+                  # per-service warning. `mountpoint="/"` scopes this to
+                  # the real root filesystem (confirmed live: this is
+                  # where /dev/sda2, the node's actual usable capacity,
+                  # 250GB, mounts -- not /boot/efi or any tmpfs pseudo-
+                  # filesystem also reported by node-exporter). Two
+                  # tiers, real lead time before actual failure: warning
+                  # at 20% free (real headroom today is ~70% free, so
+                  # crossing 20% means real, sustained, abnormal growth,
+                  # not routine log rotation jitter), critical at 10%
+                  # free (a full node disk breaks k3s/etcd itself, not
+                  # just this project's own services -- worth a faster
+                  # page). `for: 15m`: this cluster's real provisioned
+                  # PVC capacity is small (tens of GB total across every
+                  # component), so a genuine runaway needs real,
+                  # sustained growth to cross either threshold -- not a
+                  # one-off write burst.
+                  - alert: NodeDiskSpaceLow
+                    expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.20
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "Node root filesystem below 20% free"
+                      description: "node_filesystem_avail_bytes{mountpoint=\"/\"} has stayed below 20% of node_filesystem_size_bytes for 15m. Every PVC here uses local-path with no enforced quota -- check for an unexpectedly large PVC (`kubectl get pvc -A` sorted by capacity, then `du` inside the largest pod) before assuming routine growth. See ADR 0031's own #21d finding for why this metric didn't exist until backlog #92 enabled it."
+
+                  - alert: NodeDiskSpaceCritical
+                    expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.10
+                    for: 15m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "Node root filesystem below 10% free -- real risk to the node itself, not just this project's services"
+                      description: "node_filesystem_avail_bytes{mountpoint=\"/\"} has stayed below 10% of node_filesystem_size_bytes for 15m. A full disk on this single-node cluster can break k3s/etcd itself, not just an individual PVC's owner. Same first response as NodeDiskSpaceLow, treated as urgent: identify and shrink/evict the largest real consumer immediately."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
