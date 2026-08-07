@@ -451,17 +451,22 @@ spec:
             limits:
               cpu: 500m
               memory: 1Gi
-          # 3 days, not the chart's 15-day default: a single-node dev
-          # cluster generating a handful of test requests per session
-          # has no benefit from 15 days of mostly-empty series (ADR
-          # 0014's documented retention policy, per the AC).
-          retention: "3d"
+          # backlog #94 (ADR 0014 addendum, 2026-08-07): raised 3d -> 30d.
+          # 3-day retention silently capped every reliability-over-time
+          # claim this project could make -- no 28-day error budget, no
+          # SLO-over-time report. Real measured cost, not assumed: a real
+          # `kubectl exec ... du -sh /data` against the live pod showed
+          # 1.1G accumulated over the existing 3-day window (~370Mi/day),
+          # against 162.6G free on the node at measurement time -- 30d
+          # costs ~11Gi, a small fraction of real headroom.
+          retention: "30d"
           persistentVolume:
-            # A real PVC, not emptyDir (ADR 0014, same reasoning as
-            # Postgres, ADR 0012): this data has actual continuity
-            # value -- that's what a retention policy means. Small,
-            # matching the short retention.
-            size: 2Gi
+            # Raised 2Gi -> 16Gi alongside retention, headroom above the
+            # measured 30-day figure (~11Gi), not a bare minimum. Real
+            # PVC, not emptyDir (ADR 0014, same reasoning as Postgres,
+            # ADR 0012): this data has actual continuity value -- that's
+            # what a retention policy means.
+            size: 16Gi
           # Fixed local address (no more port-forward for day-to-day
           # access) -- same adamastorx-ca/Traefik pattern api's own
           # Ingress uses (ADR 0021). Local-only for now (ADR 0004, no
