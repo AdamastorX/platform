@@ -160,20 +160,20 @@ spec:
             limits:
               cpu: 50m
               memory: 64Mi
-          # Real, live-checked asymmetry between the two subcharts:
-          # prometheus-node-exporter's own Service ships
-          # `prometheus.io/scrape: "true"` by default (confirmed
-          # against its real values.yaml), so the existing
-          # kubernetes-service-endpoints job below already picks it up
-          # for free. kube-state-metrics' own Service does not (its
-          # `service.annotations` defaults to `{}`) -- without this,
-          # it would deploy successfully and report nothing scraped,
-          # the exact "enabled but silently not wired" shape this
-          # project's own discipline checks against a live Prometheus
-          # before calling anything done.
-          service:
-            annotations:
-              prometheus.io/scrape: "true"
+          # Real mistake caught by CI, not shipped: this chart's own
+          # Service template (templates/service.yaml) already emits
+          # `prometheus.io/scrape` unconditionally from a separate
+          # top-level `prometheusScrape` value (real default `true`,
+          # confirmed against the chart's own values.yaml) -- an
+          # explicit `service.annotations.prometheus.io/scrape: "true"`
+          # here duplicates that same key in the rendered map, which
+          # `helm-render`'s kubeconform check correctly rejected
+          # ("key ... already set in map") before this ever reached the
+          # live cluster. No override needed: the annotation is already
+          # on by default, unlike node-exporter's own Service, which
+          # gets the same annotation through its own, differently-named
+          # default (`prometheus.io/scrape: "true"` baked directly into
+          # its service.annotations default, confirmed separately).
         prometheus-node-exporter:
           enabled: true
           resources:
