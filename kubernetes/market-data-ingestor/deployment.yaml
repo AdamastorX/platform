@@ -62,7 +62,13 @@ spec:
           # whole send() call, not just its async completion (the real
           # LinkageError threw synchronously, bypassing the old handler
           # entirely).
-          image: ghcr.io/adamastorx/market-data-ingestor:93c533a283511fe134687dc74bade3787515400b
+          # Real tag: services#64 -- backlog #115, real exponential
+          # reconnect backoff (base delay doubling per consecutive
+          # failure, capped at 5 minutes) so a real Finnhub HTTP 429
+          # can no longer self-perpetuate the way a flat reconnectDelay
+          # did (285+ failures with no growth, live evidence). A real
+          # 429 specifically jumps the backoff ahead immediately.
+          image: ghcr.io/adamastorx/market-data-ingestor:87279721f56098deb83e0df18660a414b1c02f81
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # workers) -- this service has no business HTTP API for
