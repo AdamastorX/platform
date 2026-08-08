@@ -1,0 +1,15 @@
+# Same platform#35 pattern as every other module's namespace:
+# deployment.yaml's container already sets an explicit CPU/memory
+# request+limit, so this is a backstop for anything added later in
+# this namespace, not a fix for a live gap.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-cpu-limit
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "1"
+      defaultRequest:
+        cpu: 100m

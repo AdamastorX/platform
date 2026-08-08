@@ -1,0 +1,32 @@
+# Mimir for backlog #108 (ADR 0038, adamastorx repo): real monolithic
+# mode, hand-written manifests under kubernetes/mimir/ rather than the
+# mimir-distributed Helm chart -- see kubernetes/mimir/configmap.yaml's
+# own comment for the full reasoning (that chart has no single-process
+# deployment mode at all, checked live before this choice).
+#
+# syncPolicy.automated is NOT set, same deliberate manual-sync
+# discipline aggregator/market-data-ingestor/news-ingestor's own
+# Applications use -- this cluster's CPU requests are already at real,
+# checked-live 91% of allocatable (deployment.yaml's own honest
+# headroom flag); sync happens by hand, with a fresh `kubectl describe
+# node` reading immediately before, not automatically the moment this
+# merges.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mimir
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/mimir
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mimir
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

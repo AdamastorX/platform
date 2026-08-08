@@ -1,0 +1,16 @@
+# 2Gi, same starting size as Prometheus's own PVC (argocd/apps/
+# prometheus.yaml) -- this cluster's real metric volume is small, and
+# 161G is free on the node's own disk (checked live via `df -h`
+# immediately before this file was written) -- generous room to grow
+# without guessing a larger number up front.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mimir-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi

@@ -170,6 +170,18 @@ spec:
                 type: grafana-pyroscope-datasource
                 url: http://pyroscope.pyroscope.svc.cluster.local:4040
                 access: proxy
+              # backlog #108 (ADR 0038): second datasource, alongside
+              # (not replacing) Prometheus -- Mimir speaks the same
+              # Prometheus query API under its own /prometheus prefix
+              # (confirmed live via the real mimir binary's own -help-all
+              # output, -http.prometheus-http-prefix default "/prometheus",
+              # not guessed). isDefault stays on the plain Prometheus
+              # datasource above; this one is opt-in per query/dashboard.
+              - name: Mimir
+                uid: mimir
+                type: prometheus
+                url: http://mimir.mimir.svc.cluster.local:8080/prometheus
+                access: proxy
         # Dashboards as code (observability#4, backlog #20, ADR 0017) --
         # golden signals (latency, traffic, errors, saturation) for each of
         # api/workers, one dashboard per service. File-based

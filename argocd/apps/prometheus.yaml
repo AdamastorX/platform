@@ -479,6 +479,15 @@ spec:
             # ADR 0012): this data has actual continuity value -- that's
             # what a retention policy means.
             size: 16Gi
+          # backlog #108 (ADR 0038): remote-writes to Mimir alongside
+          # (not replacing) this Prometheus's own 30-day retention --
+          # Mimir gains a second copy of every sample from the moment
+          # this syncs, not a backfill of history that predates it. No
+          # X-Scope-OrgID header needed: Mimir's own
+          # multitenancy_enabled: false (kubernetes/mimir/configmap.yaml)
+          # accepts writes without one.
+          remoteWrite:
+            - url: http://mimir.mimir.svc.cluster.local:8080/api/v1/push
           # Fixed local address (no more port-forward for day-to-day
           # access) -- same adamastorx-ca/Traefik pattern api's own
           # Ingress uses (ADR 0021). Local-only for now (ADR 0004, no
