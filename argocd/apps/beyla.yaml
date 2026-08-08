@@ -1,0 +1,78 @@
+# Grafana Beyla for backlog #102 (ADR 0036, adamastorx repo): an eBPF
+# auto-instrumentation A/B experiment against api/workers/aggregator's
+# own existing manual Micrometer/OTel instrumentation, on the same
+# cluster, at the same time.
+#
+# Own `beyla` namespace, same "one namespace per component" pattern as
+# every other tool here. No PVC, no other component depends on this
+# one -- deleting this Application and its Prometheus scrape-config
+# block is the entire rollback path (ADR 0036).
+#
+# Unprivileged mode (privileged: false), not the chart's `privileged:
+# true` default -- checked live against the chart's own
+# daemon-set.yaml template before choosing this, not assumed from the
+# values.yaml comment: this grants a specific capability set (BPF,
+# SYS_PTRACE, NET_RAW, CHECKPOINT_RESTORE, DAC_READ_SEARCH, PERFMON,
+# SYS_ADMIN, +NET_ADMIN for contextPropagation) rather than the full
+# host-device/breakout grant `privileged: true` implies. The chart's
+# DaemonSet also sets hostPID/hostNetwork unconditionally (eBPF needs
+# node-wide process/socket visibility) -- checked via `helm template`
+# before committing to this, not assumed. Still real, bounded
+# privilege -- ADR 0036 states honestly that this is narrower than
+# `privileged: true`, not equivalent to ADR 0028's fully unprivileged
+# OTel-agent-injection precedent (eBPF tracing needs kernel-level
+# access no injected-agent approach does).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: beyla
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: beyla
+    targetRevision: 1.16.10
+    helm:
+      valuesObject:
+        fullnameOverride: beyla
+        privileged: false
+        contextPropagation:
+          enabled: true
+        preset: application
+        config:
+          create: true
+          data:
+            attributes:
+              kubernetes:
+                enable: true
+            prometheus_export:
+              port: 9090
+              path: /metrics
+        service:
+          enabled: true
+          port: 80
+          targetPort: 9090
+        # Provisional sizing, same starting point as otel-collector's
+        # own per-node agent (argocd/apps/otel-collector.yaml) --
+        # single-node cluster, one Beyla pod. To be measured live and
+        # corrected against real `kubectl top pod` usage, same
+        # discipline as every prior resource-sizing finding this
+        # project has made (#77/#114), not assumed correct on arrival.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: beyla
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
