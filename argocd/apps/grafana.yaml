@@ -2067,6 +2067,242 @@ spec:
                     }
                   ]
                 }
+            beyla-vs-manual:
+              json: |
+                {
+                  "uid": "beyla-vs-manual",
+                  "title": "Beyla vs Manual Instrumentation (backlog #102, ADR 0036)",
+                  "tags": [
+                    "golden-signals",
+                    "beyla"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "api — request rate: Beyla (eBPF) vs manual (Micrometer)",
+                      "description": "Same real traffic, two independently-instrumented views. Beyla's OTel-semconv metric name (http_server_request_duration_seconds, singular \"request\") differs from Micrometer's own Spring Boot convention (http_server_requests_seconds, plural) -- a real naming-convention mismatch found live, not a typo in either panel.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 24,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"api/api\"}[$__rate_interval]))",
+                          "legendFormat": "Beyla (eBPF)"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_requests_seconds_count{job=\"api\", uri!~\"/actuator.*\"}[$__rate_interval]))",
+                          "legendFormat": "Manual (Micrometer)"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "aggregator — /aggregates rate: Beyla (eBPF) vs manual (Micrometer)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 24,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_request_duration_seconds_count{job=\"aggregator/aggregator\", http_route=~\"/aggregates.*\"}[$__rate_interval]))",
+                          "legendFormat": "Beyla (eBPF)"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_requests_seconds_count{job=\"aggregator\", uri=~\"/aggregates.*\"}[$__rate_interval]))",
+                          "legendFormat": "Manual (Micrometer)"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "title": "workers — Kafka message-processing p95 duration (Beyla only)",
+                      "description": "A signal class manual instrumentation here doesn't have at all: workers deliberately has no HTTP API (ADR 0009/0011), so there was never a Micrometer timer around its Kafka message handling to compare against -- Beyla's eBPF-level messaging_process_duration_seconds is genuinely new coverage, not a second view of an existing one. This is the concrete case for \"auto-instrumentation adds something\" this experiment's own AC asked to test honestly.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 16,
+                        "w": 24,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum(rate(messaging_process_duration_seconds_bucket{job=\"workers/workers\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 message processing duration"
+                        }
+                      ]
+                    }
+                  ]
+                }
+            frontend-rum:
+              json: |
+                {
+                  "uid": "frontend-rum",
+                  "title": "Frontend RUM — visualizer / clinvar-viewer (backlog #103, ADR 0037)",
+                  "tags": [
+                    "golden-signals",
+                    "faro",
+                    "rum"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "Frontend events by app",
+                      "description": "Faro Web SDK events (web-vitals, errors, logs) from both frontends, split by app_name -- confirmed live against a real event through the full pipeline (Faro SDK shape -> Alloy's faro.receiver -> Loki) before this panel was written, not assumed from SDK docs alone.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 24,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "loki",
+                        "uid": "loki"
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "loki",
+                            "uid": "loki"
+                          },
+                          "expr": "sum by (app_name) (count_over_time({job=\"faro\"} | json [$__interval]))"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "title": "Frontend events by kind",
+                      "description": "kind distinguishes web-vitals measurements, exceptions, and plain logs -- an error-rate spike here is exactly the #82-shaped pre-merge-bug class this item's own Purpose named.",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 24,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "loki",
+                        "uid": "loki"
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "loki",
+                            "uid": "loki"
+                          },
+                          "expr": "sum by (kind) (count_over_time({job=\"faro\"} | json [$__interval]))"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "title": "Recent frontend events (raw)",
+                      "type": "logs",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 16,
+                        "w": 24,
+                        "h": 10
+                      },
+                      "datasource": {
+                        "type": "loki",
+                        "uid": "loki"
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "loki",
+                            "uid": "loki"
+                          },
+                          "expr": "{job=\"faro\"}"
+                        }
+                      ]
+                    }
+                  ]
+                }
             blackbox-public-edge:
               json: |
                 {
