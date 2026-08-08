@@ -12,6 +12,15 @@
 # values schema unchanged), at a newer version (12.8.0, appVersion
 # 13.1.1, published 2026-07-21) than the deprecated repo's last release
 # (10.5.15) -- a real continuation, not a stale mirror.
+#
+# Components without their own dashboard, and why (backlog #109, same
+# reasoning as ADR 0020's own "Components without their own row"
+# section, adamastorx repo): clinvar-viewer/visualizer are static
+# frontends with no backend of their own to have a golden signal for;
+# workload-generator is synthetic traffic infrastructure, not a
+# service with its own dashboard-worthy signal. Stated here so
+# scripts/check-roster-drift.sh's grace-period check (backlog #109)
+# can find the reason the same way it finds a real dashboard.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
