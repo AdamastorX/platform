@@ -358,9 +358,15 @@ else
   # not a confidentiality boundary -- it still does real per-tenant
   # attribution/rate-limiting work at the edge, which is what this item
   # actually needs from it.
+  # backlog #103 (ADR 0037): a second config.js line, same file, same
+  # Secret -- Faro's own collector URL is deploy-time config for
+  # exactly the same reason ADAMASTORX_API_BASE is in visualizer's own
+  # Secret below (new as of this item, not a hostname that predates
+  # this frontend), not a hardcoded app.js const.
   echo "==> creating secret/clinvar-viewer-api-key (ns clinvar-viewer)"
   kubectl create secret generic clinvar-viewer-api-key -n clinvar-viewer \
-    --from-literal=config.js="window.ADAMASTORX_API_KEY = \"${clinvar_viewer_key}\";"
+    --from-literal=config.js="window.ADAMASTORX_API_KEY = \"${clinvar_viewer_key}\";
+window.ADAMASTORX_FARO_URL = \"https://faro.local.adamastorx.test/collect\";"
 
   unset clinvar_viewer_key workload_generator_key smoke_test_key htpasswd_body
 fi
@@ -467,8 +473,12 @@ echo "==> visualizer-config (visualizer namespace, backlog #82)"
 # app.js's own ADAMASTORX_API_KEY `typeof` guard already handles that
 # absence the same way clinvar-viewer's app.js handles a missing key,
 # so nothing else needs to change the day a key is provisioned here.
+# backlog #103 (ADR 0037): a second config.js line, same reasoning as
+# API_BASE above -- faro.local.adamastorx.test is new as of this item,
+# so it belongs here, not hardcoded in app.js.
 create_secret visualizer-config visualizer \
-  --from-literal=config.js='window.ADAMASTORX_API_BASE = "https://aggregator.local.adamastorx.test";'
+  --from-literal=config.js='window.ADAMASTORX_API_BASE = "https://aggregator.local.adamastorx.test";
+window.ADAMASTORX_FARO_URL = "https://faro.local.adamastorx.test/collect";'
 
 echo "==> ntfy-webhook-url (prometheus namespace, backlog #107)"
 # Real incident: the ntfy topic used to be committed in plain text in

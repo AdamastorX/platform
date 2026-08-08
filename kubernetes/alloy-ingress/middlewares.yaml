@@ -1,0 +1,23 @@
+# backlog #103 (ADR 0037): CORS for Alloy's Faro receiver -- same
+# Traefik `headers` Middleware type api-cors/aggregator-cors already
+# use. The Faro Web SDK POSTs from the frontend's own origin
+# (visualizer.local.adamastorx.test / clinvar-viewer.local.adamastorx.test),
+# a different origin than faro.local.adamastorx.test, so a real CORS
+# preflight (OPTIONS) needs a real answer here.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: alloy-faro-cors
+  namespace: alloy
+spec:
+  headers:
+    accessControlAllowMethods:
+      - POST
+      - OPTIONS
+    accessControlAllowHeaders:
+      - Content-Type
+    accessControlAllowOriginList:
+      - https://visualizer.local.adamastorx.test
+      - https://clinvar-viewer.local.adamastorx.test
+    accessControlMaxAge: 600
+    addVaryHeader: true

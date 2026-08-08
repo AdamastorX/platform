@@ -1,0 +1,27 @@
+# Standalone Ingress for Alloy's Faro receiver (backlog #103, ADR 0037)
+# -- a separate Application from `alloy` itself, same "chart with no
+# ingress key of its own" pattern as alertmanager-ingress. Destination
+# namespace is `alloy` since that's where the real `alloy` Service this
+# Ingress/Middleware target actually lives.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy-ingress
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/alloy-ingress
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: alloy
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
