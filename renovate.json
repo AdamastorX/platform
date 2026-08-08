@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "onboarding": false,
+  "requireConfig": "optional",
+  "platformAutomerge": true,
+  "enabledManagers": ["argocd", "github-actions", "terraform"],
+  "argocd": {
+    "managerFilePatterns": ["/^argocd\\/apps\\/.+\\.ya?ml$/"]
+  },
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true
+    }
+  ]
+}

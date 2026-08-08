@@ -1,0 +1,25 @@
+name: Renovate
+
+# backlog #98: self-hosted Renovate (renovatebot/github-action), not the
+# GitHub App -- avoids an org-level app install this agent can't grant
+# itself, and each repo's own GITHUB_TOKEN is already scoped correctly
+# (nothing cross-repo needed since each repo manages only its own
+# dependencies).
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: renovatebot/github-action@v46.2.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
