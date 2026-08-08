@@ -82,6 +82,31 @@ data:
       ring:
         replication_factor: 1
 
+    # A second real limit found live, after the replication_factor fix
+    # unblocked ingestion: Mimir's default per-tenant series limit
+    # (150000) rejected most real writes with "per-user series limit...
+    # exceeded" the moment traffic actually flowed -- this cluster's
+    # real prometheus_tsdb_head_series was ~186,604 at the time this
+    # was found (queried live against the real running Prometheus, not
+    # estimated), already above the default before Mimir even started
+    # deduplicating anything of its own. Raised with real headroom
+    # above that measured figure, not an arbitrarily large number.
+    #
+    # A separate, smaller real gap found at the same time, deliberately
+    # NOT fixed here (out of scope for this experiment, stated
+    # honestly rather than silently patched): otel-collector's own
+    # self-monitoring series carry a label literally named
+    # "server.address" (a raw OTel semantic-convention attribute name,
+    # dots included) -- valid enough for Prometheus's own local TSDB to
+    # accept without complaint, but rejected by Mimir's own stricter
+    # remote-write label-name validation
+    # (err-mimir-label-invalid). Real, observed evidence for ADR 0038's
+    # own write-up: Mimir's ingest path enforces rules plain Prometheus
+    # doesn't, a real behavioral difference at this project's actual
+    # scale, not just a resource-cost one.
+    limits:
+      max_global_series_per_user: 300000
+
     server:
       http_listen_port: 8080
       log_level: info
