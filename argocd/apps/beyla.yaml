@@ -55,18 +55,23 @@ spec:
           enabled: true
           port: 80
           targetPort: 9090
-        # Provisional sizing, same starting point as otel-collector's
-        # own per-node agent (argocd/apps/otel-collector.yaml) --
-        # single-node cluster, one Beyla pod. To be measured live and
-        # corrected against real `kubectl top pod` usage, same
-        # discipline as every prior resource-sizing finding this
-        # project has made (#77/#114), not assumed correct on arrival.
+        # Real memcg OOM found live, not guessed: the first deploy's
+        # provisional 256Mi limit (otel-collector's own per-node-agent
+        # starting point) killed the container every ~30-90s --
+        # `dmesg`'s own oom-killer log showed real anon-rss ~253Mi +
+        # file-rss ~55Mi (~308Mi total) against that 256Mi cgroup
+        # limit, same "measured peak, not guessed" lesson Tempo's own
+        # resources comment already recorded for its own startup burst
+        # (argocd/apps/tempo.yaml). A live `kubectl patch` bumping this
+        # in-cluster without a matching git commit was reverted by
+        # ArgoCD's own selfHeal before it could be validated -- the fix
+        # only actually took effect once committed here.
         resources:
           requests:
             cpu: 100m
-            memory: 128Mi
-          limits:
             memory: 256Mi
+          limits:
+            memory: 1Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: beyla
