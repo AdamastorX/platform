@@ -66,6 +66,22 @@ data:
     ruler:
       rule_path: /data/ruler
 
+    # Real bug found live, not guessed: Mimir's own ingester ring
+    # defaults to replication_factor: 3 even in monolithic mode
+    # (checked against the real binary's own -help-all output --
+    # "This configuration is not used when ingest storage is enabled"
+    # confirms it IS used here). A single-replica Deployment can never
+    # satisfy that -- the real running pod rejected every real
+    # Prometheus remote_write with a 500 ("at least 2 live replicas
+    # required, could only find 1") the moment real traffic arrived,
+    # despite passing its own readiness probe the whole time. Set to 1,
+    # the only value a genuine single-process deployment can ever
+    # satisfy -- confirmed live with the real binary locally (push
+    # requests stopped being rejected) before this fix was committed.
+    ingester:
+      ring:
+        replication_factor: 1
+
     server:
       http_listen_port: 8080
       log_level: info
