@@ -37,6 +37,24 @@ spec:
               resources: ["pods", "pods/log", "namespaces", "nodes"]
               verbs: ["get", "list", "watch"]
         alloy:
+          # backlog #103 (ADR 0037, adamastorx repo): the Faro receiver
+          # port, exposed on both the container and this chart's own
+          # Service -- the chart's own values.yaml carries this exact
+          # "faro"/12347 shape as its own commented-out example,
+          # confirmed by pulling the chart locally before using it, not
+          # guessed. kubernetes/alloy-ingress/ (a separate Application,
+          # same "standalone Ingress for a chart with no ingress key"
+          # pattern as alertmanager-ingress) is what actually makes this
+          # port reachable from a real browser. Found live (rendering
+          # this chart locally before committing) that extraPorts must
+          # nest directly under `alloy:`, not under `rbac:` -- the
+          # Service template merges it from $values := .Values.alloy,
+          # a sibling key gets silently ignored rather than erroring.
+          extraPorts:
+            - name: faro
+              port: 12347
+              targetPort: 12347
+              protocol: TCP
           configMap:
             content: |
               discovery.kubernetes "pods" {
@@ -68,6 +86,54 @@ spec:
               loki.write "default" {
                 endpoint {
                   url = "http://loki.loki.svc.cluster.local:3100/loki/api/v1/push"
+                }
+              }
+
+              // backlog #103 (ADR 0037): frontend RUM from visualizer/
+              // clinvar-viewer's own Faro Web SDK. Reuses this same
+              // Alloy DaemonSet and the existing loki.write above --
+              // Tempo (observability#3, ADR 0015) is already running
+              // too, so this is genuinely zero new stateful
+              // infrastructure, only new pipeline wiring on components
+              // already deployed for the log-shipping role above.
+              faro.receiver "default" {
+                // JSON, not the logfmt default -- the Faro payload's
+                // fields (app_name, kind, message, page URL, ...) are
+                // what the frontend-RUM dashboard's own LogQL queries
+                // (`| json`) filter and group on; JSON parses more
+                // reliably than logfmt for a payload this project
+                // doesn't control the shape of. extra_log_labels is
+                // the only source of real Loki labels this component
+                // adds (confirmed reading the component's own Go
+                // source before relying on it) -- one static "job"
+                // label so this is a real, queryable stream, same
+                // convention the pod-log pipeline above already uses.
+                extra_log_labels = {
+                  job = "faro",
+                }
+                log_format = "json"
+
+                server {
+                  listen_address       = "0.0.0.0"
+                  listen_port          = 12347
+                  cors_allowed_origins = [
+                    "https://visualizer.local.adamastorx.test",
+                    "https://clinvar-viewer.local.adamastorx.test",
+                  ]
+                }
+
+                output {
+                  logs   = [loki.write.default.receiver]
+                  traces = [otelcol.exporter.otlphttp.tempo.input]
+                }
+              }
+
+              otelcol.exporter.otlphttp "tempo" {
+                client {
+                  endpoint = "http://tempo.tempo.svc.cluster.local:4318"
+                  tls {
+                    insecure = true
+                  }
                 }
               }
   destination:
