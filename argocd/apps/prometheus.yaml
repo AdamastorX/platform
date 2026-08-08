@@ -372,6 +372,18 @@ spec:
             metrics_path: /actuator/prometheus
             static_configs:
               - targets: ['aggregator.aggregator.svc.cluster.local:80']
+          # Beyla (backlog #102, ADR 0036, adamastorx repo): eBPF
+          # auto-instrumentation experiment, plotted alongside
+          # api/workers/aggregator's own manual instrumentation on one
+          # dashboard, not replacing it. Static target, same reasoning
+          # as api/aggregator above -- argocd/apps/beyla.yaml creates a
+          # stable ClusterIP Service (this is a single-node cluster, one
+          # Beyla pod, one endpoint), so pod-role discovery isn't
+          # needed here the way it is for workers.
+          - job_name: beyla
+            metrics_path: /metrics
+            static_configs:
+              - targets: ['beyla.beyla.svc.cluster.local:80']
           # Blackbox synthetic monitoring (backlog #93, ADR 0031/M15) --
           # the standard Prometheus-side half of the blackbox_exporter
           # pattern: Prometheus itself scrapes blackbox-exporter's own
