@@ -183,6 +183,54 @@ re-run this script (a fresh topic is generated); re-subscribe the ntfy
 app/website to the new topic before the old one is decommissioned, or
 alerts go silently unheard between the rotation and the resubscribe.
 
+## SOPS+age recovery copies (backlog #100, ADR 0034)
+
+Every Secret above is unversioned by design (ADR 0034's own rejected-
+alternatives section explains why plaintext-in-git and a new in-
+cluster controller were both ruled out) — safe from a git-history
+leak, but unrecoverable if this laptop dies. `sops_value()`
+(`create-stateful-secrets.sh`) closes that gap for Secrets that opt
+into it: an encrypted, git-safe recovery copy under `bootstrap/secrets/`,
+decryptable only with a real `age` private key that lives in the
+operator's own password manager, never in this repo.
+
+**Currently opted in: `ntfy-webhook-url` only** — the one Secret
+migrated as this decision's own end-to-end proof. The 6 stateful DB-
+credential Secrets above are deliberately not on this path yet (ADR
+0034's own Consequences section states why: rotating a live database
+password is a real maintenance-window operation, not something to
+risk proving a mechanism against).
+
+**How it works**: if `bootstrap/secrets/<name>.enc.yaml` already
+exists, `sops_value()` decrypts and returns its real value (recovery).
+If it doesn't exist yet, it generates a fresh value the normal way
+*and* writes a new encrypted file for next time — self-bootstrapping,
+no separate manual encryption step. Requires `sops`
+(https://github.com/getsops/sops) and `age`
+(https://github.com/FiloSottile/age) installed, and
+`SOPS_AGE_KEY_FILE` pointed at the real private key when *decrypting*
+an existing file (not needed when only generating a fresh one — only
+the public recipient, `bootstrap/.sops-age-recipient`, is needed for
+that direction). Missing tooling degrades to today's plain-generation
+behavior with a real, printed warning, not a silent skip.
+
+**The recover-without-laptop path**: a fresh checkout of this repo
+already has every `*.enc.yaml` file (git-tracked). Install `sops`/
+`age`, restore the private key from the password manager into
+`SOPS_AGE_KEY_FILE`, run this script normally — every opted-in Secret
+recovers its exact prior value, not a fresh random one.
+
+**Setting up the `age` keypair on a truly fresh project** (this
+cluster's own keypair already exists, this is for reference):
+
+```sh
+age-keygen -o age-key.txt
+# Save age-key.txt's own "AGE-SECRET-KEY-..." line to a password
+# manager NOW -- it is the only copy. Never commit this file.
+grep "public key:" age-key.txt | cut -d' ' -f4 > bootstrap/.sops-age-recipient
+# .sops-age-recipient is the public key -- safe to commit.
+```
+
 ## Re-bootstrap from zero
 
 Given a fresh k3s cluster (provisioned via `../terraform/`):

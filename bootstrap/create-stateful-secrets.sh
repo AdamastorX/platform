@@ -45,6 +45,24 @@
 #      credentials that never leave the cluster. Worth reconsidering if
 #      the number of managed secrets or rotation frequency grows -- not
 #      adopted here.
+#      Reconsidered for real, backlog #100/ADR 0034 (2026-08-08): the
+#      real trigger this bullet itself named ("if... rotation frequency
+#      grows") arrived -- ntfy topic rotation, api-tenant-key rotation,
+#      and every future non-DB-credential secret this script creates
+#      all share the same real, unresolved gap, unrelated to secret
+#      *count*: every value here is unversioned, so a laptop failure
+#      loses it with no recovery path, the same exposure class ADR
+#      0030 already accepted (and documented) for Terraform's own local
+#      state. SOPS+age, not sealed-secrets, chosen this time -- see ADR
+#      0034 for the full reasoning. Applied to `sops_value()`-backed
+#      Secrets below (currently: `ntfy-webhook-url`, proven end-to-end);
+#      the 6 stateful DB-credential Secrets this whole script's own
+#      header exists to explain are deliberately NOT migrated in the
+#      same pass -- a real, live-credential-touching migration of an
+#      already-running Postgres/Redis/Kafka/Grafana password is exactly
+#      the kind of risky live action this project's own discipline
+#      reserves for a separate, deliberate, individually-confirmed step,
+#      not bundled into proving the mechanism works.
 #   3. (chosen) An explicit, out-of-band bootstrap step: this script,
 #      run once against a fresh cluster, same sanctioned-manual-step
 #      precedent this directory's install-argocd.sh already establishes
@@ -149,6 +167,61 @@ gen_kraft_id() {
   local hex
   hex=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
   echo -n "$hex" | xxd -r -p | base64 | tr '+/' '-_' | tr -d '='
+}
+
+# Backlog #100 / ADR 0034: SOPS+age recovery copy. See this file's own
+# header comment ("Reconsidered for real") for why this exists and why
+# it's scoped to only the Secrets that opt into it (via a call to
+# sops_value below), not every Secret this script creates.
+#
+# --config /dev/null + an explicit --age recipient, deliberately not a
+# .sops.yaml path-matching config: found live while building this --
+# sops resolves .sops.yaml relative to the file path it's told about,
+# which is fragile against stdout redirection and against this script
+# being run from a different working directory than bootstrap/. An
+# explicit recipient is boring and always correct regardless of cwd.
+SOPS_SECRETS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secrets"
+SOPS_AGE_RECIPIENT_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.sops-age-recipient"
+
+# sops_value <name> <generator-function-name>
+#
+# Recovers the same real value across a rebuild instead of a fresh
+# random one every time: if secrets/<name>.enc.yaml already exists
+# (git-committed, safe -- it's encrypted), decrypts and returns its
+# real value. Otherwise calls the given generator, writes a new
+# encrypted file for *next* time, and returns the freshly-generated
+# value now -- self-bootstrapping on first use, not a separate manual
+# step. Falls back to the plain generator (today's existing behavior,
+# unrecoverable but functional) if sops/age tooling or the recipient
+# file isn't present, so a fresh machine without SOPS installed yet
+# doesn't get blocked entirely -- printed as a real, visible warning,
+# not a silent downgrade.
+sops_value() {
+  local name=$1 generator=$2
+  local enc_file="$SOPS_SECRETS_DIR/${name}.enc.yaml"
+
+  if [ -f "$enc_file" ]; then
+    if ! command -v sops >/dev/null 2>&1; then
+      echo "==> ERROR: $enc_file exists but sops is not installed -- cannot recover $name's real value. Install sops (https://github.com/getsops/sops) and the age private key (SOPS_AGE_KEY_FILE), see bootstrap/README.md." >&2
+      exit 1
+    fi
+    sops -d --config /dev/null --extract '["value"]' "$enc_file"
+    return
+  fi
+
+  if ! command -v sops >/dev/null 2>&1 || [ ! -f "$SOPS_AGE_RECIPIENT_FILE" ]; then
+    echo "==> WARNING: sops not installed or $SOPS_AGE_RECIPIENT_FILE missing -- $name will be generated fresh with no recovery copy (see bootstrap/README.md's SOPS section)." >&2
+    "$generator"
+    return
+  fi
+
+  local value recipient
+  value=$("$generator")
+  recipient=$(cat "$SOPS_AGE_RECIPIENT_FILE")
+  mkdir -p "$SOPS_SECRETS_DIR"
+  printf 'value: %s\n' "$value" | sops --encrypt --config /dev/null --age "$recipient" --input-type yaml --output-type yaml /dev/stdin > "$enc_file"
+  echo "==> wrote $enc_file -- commit this file to git so $name's value survives a rebuild" >&2
+  echo "$value"
 }
 
 echo "==> Ensuring namespaces exist"
@@ -406,13 +479,20 @@ echo "==> ntfy-webhook-url (prometheus namespace, backlog #107)"
 # gen_api_key generates every other non-recoverable, non-guessable
 # credential here -- 16 random bytes, hex-encoded, prefixed for
 # readability in Alertmanager's own webhook_configs (url_file) target.
-# A human still has to subscribe the ntfy app/website to whatever topic
-# this generates before it's useful -- printed once below, the same
-# "write this down" pattern the api-tenant-keys smoke-test key above
-# uses, since ntfy topics can't be recovered from anywhere after this
-# point (they carry no secret to derive from, only a name to remember).
-create_secret ntfy-webhook-url prometheus \
-  --from-literal=url="https://ntfy.sh/adamastorx-alerts-$(openssl rand -hex 16)"
+#
+# Backlog #100 / ADR 0034: this is the one Secret migrated onto
+# sops_value as the real, end-to-end proof the mechanism works -- a
+# real ntfy topic name is exactly the "unversioned, unrecoverable if
+# the laptop dies" gap that decision exists to close, and rotating it
+# is already a real, supported, low-stakes operation (unlike a live
+# database password). A human still has to subscribe the ntfy
+# app/website to whatever topic this resolves to before it's useful --
+# printed once below, same as before.
+gen_ntfy_topic() {
+  echo "https://ntfy.sh/adamastorx-alerts-$(openssl rand -hex 16)"
+}
+ntfy_url=$(sops_value ntfy-webhook-url gen_ntfy_topic)
+create_secret ntfy-webhook-url prometheus --from-literal=url="$ntfy_url"
 if kubectl get secret ntfy-webhook-url -n prometheus -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null | grep -q "$(date -u +%Y-%m-%d)"; then
   echo "==> ntfy topic (subscribe the ntfy app/website to this, write it down, it is not stored anywhere else): $(kubectl get secret ntfy-webhook-url -n prometheus -o jsonpath='{.data.url}' | base64 -d)"
 fi
