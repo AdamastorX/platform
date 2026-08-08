@@ -50,7 +50,19 @@ spec:
           # Real tag: services#61 -- backlog #91, StockPriceTick gets a
           # TickSource field (WEBSOCKET/POLL_FALLBACK) so aggregator's own
           # freshness SLI can exclude this module's REST-poll fallback.
-          image: ghcr.io/adamastorx/market-data-ingestor:6efde187dbce6fa7bd84d27e9d9f1b757e36add3
+          # Real tag: services#62 -- backlog #86(b)/(c), a real recurrence
+          # found live (10+ hours silently publishing zero real ticks
+          # despite a reconnected websocket): KafkaProducerLivenessHealthIndicator
+          # now trips liveness DOWN, permanently, if a publish failure's
+          # cause chain contains a real LinkageError (the exact
+          # unrecoverable JVM class-poisoning this incident's own root
+          # cause turned out to be) -- Kubernetes can now actually restart
+          # a producer stuck in this state instead of it staying silently
+          # Healthy. StockPriceTickPublisher.publish() also now wraps the
+          # whole send() call, not just its async completion (the real
+          # LinkageError threw synchronously, bypassing the old handler
+          # entirely).
+          image: ghcr.io/adamastorx/market-data-ingestor:93c533a283511fe134687dc74bade3787515400b
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # workers) -- this service has no business HTTP API for
