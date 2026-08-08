@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mimir
+  labels:
+    app: mimir
+spec:
+  # replicas: 1, explicit -- monolithic mode is a single process by
+  # definition (ADR 0038); a second replica would need memberlist-based
+  # ring coordination between them for no real benefit at this data
+  # volume, the same single-replica reasoning aggregator's own
+  # deployment.yaml already states for its own stateful local storage.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mimir
+  template:
+    metadata:
+      labels:
+        app: mimir
+    spec:
+      containers:
+        - name: mimir
+          # Real tag, digest-pinned (confirmed live against the Docker
+          # Hub registry API before committing, same discipline every
+          # other pinned image here follows) -- matches the
+          # mimir-distributed chart's own 6.1.0 appVersion exactly, so
+          # this config was proven locally (`Application started`,
+          # /ready responding) against the exact binary this Deployment
+          # actually runs, not a different version.
+          image: docker.io/grafana/mimir:3.1.2@sha256:39cc23910bbaa60d0280fd162265a22c39120ff61b02bc993f3fd3701fb8606d
+          args:
+            - -config.file=/etc/mimir/mimir.yaml
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mimir
+              readOnly: true
+            - name: data
+              mountPath: /data
+          # No livenessProbe: Mimir's own official manifests deliberately
+          # only probe readiness on /ready (checked against Mimir's real
+          # startup log locally -- the ingester holds /ready non-200 for
+          # a fixed ~15s grace period after the process is otherwise up,
+          # by design, not a fault). A livenessProbe on the same endpoint
+          # would risk killing and restarting a perfectly healthy process
+          # during that same window.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          # HONEST FLAG (same discipline aggregator's own deployment.yaml
+          # applied at its own first deploy): real node headroom checked
+          # live via `kubectl describe node` immediately before this file
+          # was written -- CPU requests already at 3645m/4000m (91%),
+          # ~355m free. The CPU *request* below (100m) fits inside that.
+          # The CPU *limit* (500m) does not fit inside the currently-free
+          # headroom on its own if this pod's own burst coincides with
+          # every other already-live service's burst at once -- a real,
+          # human go/no-go judgment call belongs here at actual deploy
+          # time, against a fresh node reading, not this comment's now-
+          # stale numbers. Memory requests sit at a comfortable 37%
+          # (7398Mi/20000Mi) -- far more slack there than on CPU.
+          # Never run on this cluster before this PR, so this is a
+          # defensive starting estimate, not a measured one -- re-tighten
+          # against real `kubectl top pod` usage once this has actually
+          # run live, the same backlog #77 discipline every other
+          # service here followed.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+      volumes:
+        - name: config
+          configMap:
+            name: mimir-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: mimir-data

@@ -1,0 +1,71 @@
+# backlog #108 (ADR 0038, adamastorx repo): Mimir's real monolithic mode
+# (`target: all,alertmanager`), not the `mimir-distributed` Helm chart.
+# That chart has no single-process deployment mode at all -- checked
+# live before choosing this shape: its values.yaml is built entirely
+# around the distributed architecture (separate distributor/ingester/
+# querier/query-frontend/query-scheduler/store-gateway/compactor/ruler
+# components, each its own Deployment/StatefulSet even at the smallest
+# preset), the exact disproportionate-machinery pattern ADR 0011/0014/
+#0032 already reject for this single-node cluster. Mimir the binary
+# has its own real, documented, officially-supported monolithic mode
+# (`-target=all`) this chart just doesn't expose -- a plain hand-written
+# Deployment (this project's own established shape for its services
+# under kubernetes/<name>/) fits it better than forcing a
+# microservices chart into a shape it isn't built for.
+#
+# This exact config was proven to actually start cleanly with the real
+# mimir:3.1.2 binary locally before being committed here (`Application
+# started`, /ready responding) -- not assumed from documentation alone.
+#
+# filesystem backend, not S3/GCS/MinIO: Mimir's own startup log states
+# this plainly ("-blocks-storage.backend=filesystem is for development
+# and testing only; you should switch to an external object store for
+# production use") -- accepted deliberately for this single-node lab
+# experiment, same real, stated limits this project's SLO/write-up
+# discipline already applies elsewhere (ADR 0015's own Loki/Tempo
+# filesystem-storage choice, same reasoning). Real, load-bearing input
+# to backlog #108's own write-up: object storage is Mimir's actual
+# selling point over plain Prometheus retention at real multi-node
+# scale, which this cluster deliberately isn't.
+#
+# multitenancy_enabled: false -- single-operator project, no real
+# tenant boundary needed; avoids requiring an X-Scope-OrgID header on
+# every remote_write/query call from Prometheus/Grafana.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mimir-config
+data:
+  mimir.yaml: |
+    target: all,alertmanager
+    multitenancy_enabled: false
+
+    common:
+      storage:
+        backend: filesystem
+        filesystem:
+          dir: /data/common
+
+    blocks_storage:
+      filesystem:
+        dir: /data/blocks
+      tsdb:
+        dir: /data/tsdb
+
+    alertmanager_storage:
+      filesystem:
+        dir: /data/alertmanager-storage
+
+    ruler_storage:
+      filesystem:
+        dir: /data/ruler-storage
+
+    alertmanager:
+      data_dir: /data/alertmanager
+
+    ruler:
+      rule_path: /data/ruler
+
+    server:
+      http_listen_port: 8080
+      log_level: info

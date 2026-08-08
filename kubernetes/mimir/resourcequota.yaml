@@ -1,0 +1,20 @@
+# Never run on this cluster before this PR, so deployment.yaml's
+# request/limit are a defensive starting estimate (see that file's own
+# honest resource-sizing/headroom flag). Steady-state: requests
+# cpu=100m mem=256Mi, limits cpu=500m mem=768Mi. A rolling update
+# (default maxSurge=1, single-replica Deployment) briefly doubles that
+# at peak: requests cpu=200m mem=512Mi, limits cpu=1000m mem=1536Mi.
+# Quota below clears that real peak with a small margin, not padded
+# further -- re-tighten against real `kubectl top pod` usage once this
+# has actually run live, the same backlog #77 discipline every other
+# service here followed.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-quota
+spec:
+  hard:
+    requests.cpu: 300m
+    requests.memory: 640Mi
+    limits.cpu: 1200m
+    limits.memory: 1792Mi
