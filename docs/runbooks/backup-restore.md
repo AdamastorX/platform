@@ -9,14 +9,19 @@ backup/restore path at all (`docs/SESSION_STATE.md`).
 
 ## Scope: what has real state worth backing up
 
-Two PostgreSQL instances hold source-of-truth data that cannot be
+Three PostgreSQL instances hold source-of-truth data that cannot be
 regenerated:
 
 - `postgresql` (namespace `api`, database `api`) — owns `work_items`.
 - `clinvar-postgresql` (namespace `clinvar`, database `clinvar`) — owns
   `clinvar_release`/`clinvar_variant_index`.
+- `watchlist-postgresql` (namespace `watchlist`, database `watchlist`)
+  — owns `subscriptions`/`deliveries`. Added 2026-08-09 (backlog #121):
+  `watchlist-service` didn't exist when this runbook was first written,
+  and the gap went unnoticed until a live PVC inventory for
+  `flannel-restore.md` found it.
 
-Both are single-instance Bitnami charts on a single node-pinned
+All three are single-instance Bitnami charts on a single node-pinned
 `local-path` PVC each (ADR 0012/0019).
 
 **Loki and Tempo are deliberately out of scope — decided, not an
@@ -183,6 +188,66 @@ namespace were all deleted after verification. The live `postgresql-0`
 and `clinvar-postgresql-0` pods' restart counts and PVCs were checked
 before and after and are unchanged — nothing about the live instances was
 touched.
+
+## `watchlist-postgresql`, proven live (2026-08-09, backlog #121)
+
+Same mechanism, same procedure, for the third instance added to this
+runbook's scope above — **with one real, stated gap in what it proves,
+not glossed over as equivalent to the two restores above.** The
+CronJob (`watchlist-postgresql-backup`, platform#146) was triggered
+manually (`kubectl create job --from=cronjob/watchlist-postgresql-backup`)
+rather than waiting for its real 03:40 schedule, producing a real
+7,478-byte `pg_dump` in ~seconds. Copied out via a temporary pod
+mounting the backup PVC — this time matching the target's real
+`runAsUser`/`runAsGroup` (1001/1001) from the start, the direct lesson
+`flannel-restore.md` records from the same day's earlier `fsGroup`
+incident, rather than a generic default `busybox` pod.
+
+Restored into a scratch Postgres instance
+(`docker.io/bitnamilegacy/postgresql:17.1.0-debian-12-r0`, matching
+the pinned server version, same as the other two) in a throwaway
+namespace (`backup-restore-verify`), via `pg_restore --no-owner
+--no-privileges`. Row counts checked across all three real tables:
+
+| Table | Live source | Restored |
+|---|---|---|
+| `subscriptions` | 0 | 0 |
+| `deliveries` | 0 | 0 |
+| `flyway_schema_history` | 1 | 1 |
+
+**Read this table honestly, not as parity with the api/clinvar
+restores above**: `subscriptions` and `deliveries` are genuinely empty
+in this instance's real current state, so their 0=0 match is satisfied
+trivially and proves essentially nothing about row-level data-copy
+integrity — this step 4's own rule ("never assume a zero-exit-code
+`pg_restore` alone proves data integrity") is exactly the risk here,
+and there is no nonzero row to spot-check the way `rs80357906` was
+spot-checked for `clinvar`. What *is* real evidence: the schema and
+constraints (primary keys, the `deliveries_subscription_id_fkey`
+foreign key, the `subscriptions_target_xor` check constraint) round-
+tripped correctly on a clean target, and the one real data row that
+exists anywhere in this database (`flyway_schema_history`) did copy
+correctly. That proves the mechanism and the schema; it does not yet
+prove watchlist's actual subscription data survives a restore, because
+none exists yet to test against. **Re-run this same exercise once
+`subscriptions`/`deliveries` hold real rows, with a real spot-check,
+before treating watchlist's restore path as proven to the same
+confidence as api's or clinvar's.**
+
+**RTO measured: 0.308s** — timed around `pg_restore` alone, after
+dropping and recreating the scratch schema to exclude an earlier,
+non-isolated first attempt's timing from the number. Consistent with
+the api→api_restore precedent above (15 rows, 0.31s) for the same
+reason: both are dominated by fixed `pg_restore` overhead (schema
+creation, connection, TOC processing) on a near-empty dataset, not a
+measurement of restoring watchlist's real data volume — re-measure
+once real data exists, the same caveat as the row-count check above.
+
+**Cleanup confirmed**: the scratch namespace (and everything in it),
+the temporary read pod, and the manual test Job were all deleted after
+verification. The live `watchlist-postgresql-0`/`watchlist-service`
+pods' restart counts were checked before and after and are unchanged
+(`0`, `8d`) — nothing about the live instance was touched.
 
 ## What this does not cover — accepted risk
 
