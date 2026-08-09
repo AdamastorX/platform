@@ -140,8 +140,13 @@ today, for real, without touching the live cluster:
 
 **Update (2026-08-09, later same day)**: `watchlist-postgresql`'s
 backup gap is closed — CronJob shipped and a real restore proven
-(backlog #121, platform#146; see `backup-restore.md` for the full
-account). **What's still deliberately not rehearsed, and stays open
+(backlog #121, platform#146/#147; see `backup-restore.md` for the full
+account). One honest exception to this section's own "row counts and
+at least one spot-checked row" bar, stated there rather than here:
+`watchlist`'s two real data tables are currently empty, so that
+restore proved the mechanism and schema, not row-level data-copy
+integrity — re-run once real data exists. **What's still deliberately
+not rehearsed, and stays open
 before #49 is attempted for real**: an actual `terraform destroy` +
 `terraform apply` cycle on this live cluster. That remains the one
 real, scoped precondition this document doesn't yet cover, not
