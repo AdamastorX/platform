@@ -77,9 +77,16 @@ spec:
           # discipline: a fresh headroom check happens again immediately
           # before this Deployment is actually live-synced, not assumed
           # from this comment).
+          # CPU request trimmed 250m -> 100m (backlog #120, 2026-08-09,
+          # #77-style discipline: measured, not guessed). Real 7-day
+          # max_over_time CPU rate (cAdvisor via Prometheus) was 14.3m --
+          # ~7x margin at 100m, matching #77's own 3-8x precedent band.
+          # Memory left untouched (#77's own convention, and correctly
+          # so here): real peak (254.8Mi) is already essentially at the
+          # 256Mi request, no headroom to give back on that axis.
           resources:
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 256Mi
             limits:
               cpu: "1"
