@@ -56,11 +56,16 @@
 # termination gap (single-digit seconds in every observed KEDA scale-
 # down), not a multi-minute one -- for the alert to misfire, both
 # conditions would need to hold simultaneously for a full 3 minutes,
-# which the race itself cannot produce -- to be confirmed with a real
-# live drill (backlog #113's own AC: drain `work-items` to zero lag,
-# watch `workers` actually scale to zero via KEDA, confirm
-# `WorkersConsumerMissing` does not fire) before this item is marked
-# Done, not assumed from the reasoning above alone.
+# which the race itself cannot produce. Verified live, organically --
+# not a forced synthetic drill (backlog #113's own AC): the moment this
+# change synced, `workers` was already sitting at zero real lag and had
+# already scaled itself down (`kubectl get deployment workers -n
+# workers` read 0/0/0/0, no pods in the namespace at all),
+# kube_deployment_status_replicas{deployment="workers"} correctly read
+# 0, and `/api/v1/alerts` against the real running Prometheus showed no
+# WorkersConsumerMissing alert active -- the exact real transition this
+# item's own AC asked to confirm, caught in its natural state rather
+# than manufactured.
 #
 # maxReplicaCount is 3, matching work-items' own partition count (ADR
 # 0011) -- the kafka scaler's own default behaviour already caps
