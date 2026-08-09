@@ -497,49 +497,42 @@ spec:
           # accepts writes without one.
           remoteWrite:
             - url: http://mimir.mimir.svc.cluster.local:8080/api/v1/push
-              # 2026-08-09 incident: Mimir's remote-write receiver rejects
-              # any series carrying a dotted label name with a hard 400
-              # (err-mimir-label-invalid) -- the OTel Collector's own
-              # self-monitoring metrics expose OTel semconv attribute names
-              # ("server.address", "server.port", "otel.signal", ...)
-              # directly as Prometheus labels across its whole instrument
-              # set (otelcol_exporter_*, otelcol_processor_*, and likely
-              # otelcol_receiver_*/otelcol_scraper_* too -- confirmed live
-              # that the exporter and processor families both hit this,
-              # not assuming the rest are clean), which this Prometheus's
-              # own scrape/query path tolerates but Mimir's stricter
-              # legacy validation does not. Because remote-write batches
-              # multiple series per request, one invalid series failed the
-              # *entire* batch every ~1-2min (failedSampleCount 1400-1700
-              # per occurrence, non-recoverable/dropped, not retried) --
-              # silently degrading Mimir's copy of everything, not just
-              # the one metric. **First attempt at this fix matched only
-              # otelcol_exporter_.*, and the incident recurred within
-              # minutes via otelcol_processor_incoming_items** -- the whole
-              # otelcol_* self-monitoring family is dropped now, not one
-              # sub-family at a time. This is Collector self-monitoring
-              # data with no real analytical value here (confirmed: no
-              # dashboard, alert, or backlog item in adamastorx/
-              # observability references any otelcol_* series), not worth
-              # chasing metric-by-metric as new instruments trip the same
-              # dotted-label wall.
+              # 2026-08-09 incident, root-caused after two false starts:
+              # Mimir's remote-write receiver rejects any series carrying
+              # a dotted *label name* with a hard 400
+              # (err-mimir-label-invalid). This Prometheus (v3.13.1)
+              # scrapes the OTel Collector's self-monitoring endpoint
+              # (:8888) using native UTF-8 label-name support, so any
+              # label sourced from an OTel semconv/resource attribute
+              # ("server.address", "otel.signal", "host.name",
+              # "k8s.node.name", ...) keeps its dots verbatim -- tolerated
+              # by this Prometheus's own scrape/query path, rejected by
+              # Mimir's stricter legacy validation. Because remote-write
+              # batches many series per request, one invalid series fails
+              # the *entire* batch (failedSampleCount 1100-1700 per
+              # occurrence, non-recoverable/dropped, not retried),
+              # silently degrading Mimir's copy of everything.
               #
-              # BOUNDARY (review finding, 2026-08-09): this name-prefix
-              # match, not a label-name match (write_relabel_configs can
-              # only match label *values* via source_labels, not label
-              # *names*), covers every otelcol_* series today because the
-              # Collector's telemetry.metrics.level is the chart default,
-              # "normal" -- only component metrics (receiver/processor/
-              # exporter/scraper), all otelcol_*-prefixed, are exposed at
-              # that level. If that level is ever raised to "detailed"
-              # (e.g. for future Cilium/Chaos Mesh debugging), the
-              # Collector also starts exposing its own rpc.*/http.*
-              # instrumentation metrics -- dotted-labeled, but NOT
-              # otelcol_*-prefixed -- which this regex would not catch,
-              # reopening the identical Mimir whole-batch failure under a
-              # different name family. Whoever changes that level next
-              # needs to know this drop's coverage is conditional on it
-              # staying "normal".
+              # Two earlier attempts here matched by *metric name*
+              # (otelcol_exporter_.*, then widened to otelcol_.*) and both
+              # were bypassed within minutes by a different real series --
+              # first otelcol_processor_incoming_items, then target_info
+              # (the OTel Prometheus exporter's synthetic per-target
+              # resource-attribute metric, not otelcol_*-prefixed at all).
+              # Matching by metric name was the wrong primitive: the
+              # actual invariant Mimir enforces is about *label names*,
+              # not metric names, and dotted labels can land on any
+              # OTel-originated series, not just the Collector's own
+              # self-monitoring ones. Fixed at the root instead, with
+              # Prometheus's own general-purpose primitive for this
+              # exact case: `action: labeldrop` matches against *label
+              # names* (not values, not metric names) and strips every
+              # matching label from every series, unconditionally --
+              # `regex: '.*\..*'` drops any label whose name contains a
+              # dot, wherever it appears, for whatever new instrument OTel
+              # semconv attaches one to next. The series themselves (and
+              # every well-formed label) still ship to Mimir; only the
+              # dotted labels are stripped.
               #
               # NOTE: this chart (prometheus-community/prometheus, not the
               # Prometheus Operator -- ADR 0014's own deliberate choice)
@@ -550,9 +543,8 @@ spec:
               # rendering this chart's real template and validating the
               # output with `promtool check config`.
               write_relabel_configs:
-                - source_labels: [__name__]
-                  regex: otelcol_.*
-                  action: drop
+                - regex: '.*\..*'
+                  action: labeldrop
           # Fixed local address (no more port-forward for day-to-day
           # access) -- same adamastorx-ca/Traefik pattern api's own
           # Ingress uses (ADR 0021). Local-only for now (ADR 0004, no
