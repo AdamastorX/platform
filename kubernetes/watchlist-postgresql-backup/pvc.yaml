@@ -1,0 +1,22 @@
+# backlog#121: a second, separate local-path PVC for pg_dump output --
+# deliberately not the same PVC data-watchlist-postgresql-0 uses (same
+# reasoning as kubernetes/postgresql-backup/pvc.yaml, ADR 0012), so a
+# backup living on the same disk as the thing it backs up doesn't
+# pretend to protect against a disk failure. Still node-pinned like
+# every local-path PVC here (see docs/runbooks/backup-restore.md for
+# what that does and doesn't cover).
+#
+# 1Gi, same starting size as the other two backup PVCs -- watchlist's
+# real data volume (subscription rows) is smaller than either existing
+# instance's, so this is generous headroom, not a tuned-tight minimum.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: watchlist-postgresql-backup
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
