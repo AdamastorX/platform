@@ -105,8 +105,9 @@ spec:
           # same #77-style discipline: measured, not guessed). Real
           # 7-day max_over_time CPU rate (cAdvisor via Prometheus,
           # sum(rate(container_cpu_usage_seconds_total[5m])) maxed over
-          # 7d) was 8.8m -- ~9x margin at 80m, matching #77's own 3-8x
-          # precedent band. Memory left untouched (#77's own convention):
+          # 7d) was 8.8m -- ~9x margin at 80m, just above #77's own 3-8x
+          # precedent band (more conservative, not less). Memory left
+          # untouched (#77's own convention):
           # real peak (101.6Mi) already has comfortable room under 256Mi.
           resources:
             requests:
