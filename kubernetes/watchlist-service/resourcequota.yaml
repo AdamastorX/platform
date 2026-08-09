@@ -18,8 +18,15 @@
 #                          untouched)
 # Steady-state totals: requests cpu=200m mem=768Mi, limits cpu=1750m mem=1280Mi.
 # A rolling update of watchlist-service (default maxSurge=1) briefly adds
-# +100m/+256Mi requests and +1000m/+512Mi limits at peak. Quota below
-# clears that real peak with headroom.
+# +100m/+256Mi requests and +1000m/+512Mi limits at peak.
+#
+# backlog#121 (review finding, 2026-08-09): watchlist-postgresql-backup's
+# CronJob adds a third, intermittent consumer -- limits cpu=500m
+# mem=256Mi once a day. Checked against the *coincident* worst case, not
+# just steady state: a rollout in flight at the backup's 03:30 trigger
+# would land at limits cpu=1750m+1000m+500m=3250m, mem=1280Mi+512Mi+256Mi
+# =2048Mi -- both at or over the previous 3000m/2Gi ceiling. Bumped with
+# real margin above that coincident peak, not just steady state.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -28,5 +35,5 @@ spec:
   hard:
     requests.cpu: 1250m
     requests.memory: 1536Mi
-    limits.cpu: 3000m
-    limits.memory: 2Gi
+    limits.cpu: 3500m
+    limits.memory: 2560Mi

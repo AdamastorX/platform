@@ -21,11 +21,13 @@ metadata:
   labels:
     app: watchlist-postgresql-backup
 spec:
-  # 03:30 -- 15 minutes after clinvar-postgresql-backup's 03:15 (see
-  # that CronJob's schedule comment, itself 15 minutes after
-  # postgresql-backup's 03:00), clear of both on the single node's disk
-  # I/O.
-  schedule: "30 3 * * *"
+  # 03:40 -- clinvar-postgresql-backup's activeDeadlineSeconds:900
+  # (03:15 start) means its absolute worst-case hard-stop is 03:30:00
+  # exactly (see that CronJob's schedule comment); 03:30 here would have
+  # zero real margin against that (review finding, 2026-08-09). Ten more
+  # minutes gives genuine clearance rather than a same-second boundary,
+  # for a job whose own real dumps finish in well under a second anyway.
+  schedule: "40 3 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
