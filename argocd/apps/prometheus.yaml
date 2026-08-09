@@ -519,20 +519,35 @@ spec:
               # first otelcol_processor_incoming_items, then target_info
               # (the OTel Prometheus exporter's synthetic per-target
               # resource-attribute metric, not otelcol_*-prefixed at all).
-              # Matching by metric name was the wrong primitive: the
-              # actual invariant Mimir enforces is about *label names*,
-              # not metric names, and dotted labels can land on any
-              # OTel-originated series, not just the Collector's own
-              # self-monitoring ones. Fixed at the root instead, with
-              # Prometheus's own general-purpose primitive for this
-              # exact case: `action: labeldrop` matches against *label
-              # names* (not values, not metric names) and strips every
-              # matching label from every series, unconditionally --
-              # `regex: '.*\..*'` drops any label whose name contains a
-              # dot, wherever it appears, for whatever new instrument OTel
-              # semconv attaches one to next. The series themselves (and
-              # every well-formed label) still ship to Mimir; only the
-              # dotted labels are stripped.
+              # Matching by metric name was the wrong primitive for the
+              # general case: the invariant Mimir enforces is about
+              # *label names* containing a dot, not which metric they're
+              # attached to, and a dotted label can land on any
+              # OTel-originated series. `action: labeldrop, regex:
+              # '.*\..*'` fixes that class at the root -- matches against
+              # label *names* (not values, not metric names) and strips
+              # every matching label from every series, unconditionally,
+              # for whatever new instrument OTel semconv attaches one to
+              # next. This alone is not sufficient, though (review
+              # finding, 2026-08-09): stripping a label doesn't merge
+              # series that only differed by it -- otelcol_processor_*
+              # uses the dotted `otel.signal` (logs/metrics/traces) as
+              # its one real dimension, so labeldrop alone would collapse
+              # e.g. otelcol_processor_incoming_items{otel.signal="logs"}
+              # and {otel.signal="metrics"} into identical label sets,
+              # swapping one non-recoverable whole-batch 400
+              # (err-mimir-label-invalid) for another
+              # (duplicate-timestamp) the moment both are scraped in the
+              # same interval. `target_info` doesn't have this problem
+              # (one series per job/instance, unique without its dotted
+              # resource-attribute labels), so this is specific to the
+              # otelcol_* component-metric family. Both defenses are kept
+              # together, deliberately: the name-based drop removes the
+              # one family actually known to use a dotted label as a real
+              # dimension, and the general labeldrop covers everything
+              # else (target_info today, whatever else OTel semconv
+              # attaches a dotted label to tomorrow) without needing a
+              # fourth PR to add it by name.
               #
               # NOTE: this chart (prometheus-community/prometheus, not the
               # Prometheus Operator -- ADR 0014's own deliberate choice)
@@ -543,6 +558,9 @@ spec:
               # rendering this chart's real template and validating the
               # output with `promtool check config`.
               write_relabel_configs:
+                - source_labels: [__name__]
+                  regex: otelcol_.*
+                  action: drop
                 - regex: '.*\..*'
                   action: labeldrop
           # Fixed local address (no more port-forward for day-to-day
