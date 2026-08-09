@@ -500,26 +500,46 @@ spec:
               # 2026-08-09 incident: Mimir's remote-write receiver rejects
               # any series carrying a dotted label name with a hard 400
               # (err-mimir-label-invalid) -- the OTel Collector's own
-              # self-monitoring metrics (otelcol_exporter_*) expose OTel
-              # semconv attribute names ("server.address", "server.port")
-              # directly as Prometheus labels on every exporter instrument
-              # (send_failed_spans, sent_spans, enqueue_failed_spans, etc,
-              # not just the one this incident happened to be caught on),
-              # which this Prometheus's own scrape/query path tolerates but
-              # Mimir's stricter legacy validation does not. Because
-              # remote-write batches multiple series per request, one
-              # invalid series failed the *entire* batch every ~1-2min
-              # (failedSampleCount 1500-1700 per occurrence, non-
-              # recoverable/dropped, not retried) -- silently degrading
-              # Mimir's copy of everything, not just the one metric. Whole
-              # otelcol_exporter_* family dropped before send rather than
-              # renamed: this is Collector self-monitoring data with no
-              # real analytical value here, not worth preserving under a
-              # sanitized name, and matching only the one metric this
-              # incident happened to surface would leave every sibling
-              # instrument (e.g. otelcol_exporter_sent_spans, emitted on
-              # every successful send) to trip the identical whole-batch
-              # failure the moment it's scraped.
+              # self-monitoring metrics expose OTel semconv attribute names
+              # ("server.address", "server.port", "otel.signal", ...)
+              # directly as Prometheus labels across its whole instrument
+              # set (otelcol_exporter_*, otelcol_processor_*, and likely
+              # otelcol_receiver_*/otelcol_scraper_* too -- confirmed live
+              # that the exporter and processor families both hit this,
+              # not assuming the rest are clean), which this Prometheus's
+              # own scrape/query path tolerates but Mimir's stricter
+              # legacy validation does not. Because remote-write batches
+              # multiple series per request, one invalid series failed the
+              # *entire* batch every ~1-2min (failedSampleCount 1400-1700
+              # per occurrence, non-recoverable/dropped, not retried) --
+              # silently degrading Mimir's copy of everything, not just
+              # the one metric. **First attempt at this fix matched only
+              # otelcol_exporter_.*, and the incident recurred within
+              # minutes via otelcol_processor_incoming_items** -- the whole
+              # otelcol_* self-monitoring family is dropped now, not one
+              # sub-family at a time. This is Collector self-monitoring
+              # data with no real analytical value here (confirmed: no
+              # dashboard, alert, or backlog item in adamastorx/
+              # observability references any otelcol_* series), not worth
+              # chasing metric-by-metric as new instruments trip the same
+              # dotted-label wall.
+              #
+              # BOUNDARY (review finding, 2026-08-09): this name-prefix
+              # match, not a label-name match (write_relabel_configs can
+              # only match label *values* via source_labels, not label
+              # *names*), covers every otelcol_* series today because the
+              # Collector's telemetry.metrics.level is the chart default,
+              # "normal" -- only component metrics (receiver/processor/
+              # exporter/scraper), all otelcol_*-prefixed, are exposed at
+              # that level. If that level is ever raised to "detailed"
+              # (e.g. for future Cilium/Chaos Mesh debugging), the
+              # Collector also starts exposing its own rpc.*/http.*
+              # instrumentation metrics -- dotted-labeled, but NOT
+              # otelcol_*-prefixed -- which this regex would not catch,
+              # reopening the identical Mimir whole-batch failure under a
+              # different name family. Whoever changes that level next
+              # needs to know this drop's coverage is conditional on it
+              # staying "normal".
               #
               # NOTE: this chart (prometheus-community/prometheus, not the
               # Prometheus Operator -- ADR 0014's own deliberate choice)
@@ -531,7 +551,7 @@ spec:
               # output with `promtool check config`.
               write_relabel_configs:
                 - source_labels: [__name__]
-                  regex: otelcol_exporter_.*
+                  regex: otelcol_.*
                   action: drop
           # Fixed local address (no more port-forward for day-to-day
           # access) -- same adamastorx-ca/Traefik pattern api's own
