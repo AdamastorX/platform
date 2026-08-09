@@ -448,6 +448,15 @@ spec:
                 target_label: instance
               - target_label: __address__
                 replacement: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
+          # ArgoCD's own metrics (backlog #118, staff review 2026-08-09
+          # §7.8) -- was never scraped at all, confirmed live before
+          # this change (zero argocd_* series in Prometheus). Static
+          # target, same stable-Service-DNS pattern otel-collector's own
+          # scrape job above uses: argocd-metrics is a real ClusterIP
+          # Service the ArgoCD chart already creates, no new component.
+          - job_name: argocd
+            static_configs:
+              - targets: ['argocd-metrics.argocd.svc.cluster.local:8082']
         server:
           # backlog #114: found live 2026-08-07 -- no resources block on
           # the actual metrics-store/query pod, the largest real consumer
@@ -1048,6 +1057,31 @@ spec:
                     annotations:
                       summary: "Real-time trade ticks are taking over 30s (p95) to reach aggregator's own processing"
                       description: "aggregator_price_freshness_seconds' p95, over websocket-sourced ticks only (source=\"WEBSOCKET\" -- the 30-minute REST-poll fallback is excluded by construction, not by a threshold), has stayed above 30s for 10m. Check market-data-ingestor's own market_data_tick_publish_latency_seconds (Finnhub-to-Kafka-send latency) first to isolate whether the delay is upstream of Kafka or in aggregator's own consumption/processing (kafka_consumer_fetch_manager_records_lag{job=\"aggregator\"}, AggregatorConsumerLagHigh above)."
+                  # backlog #118 (staff review 2026-08-09, §7.8): ADR
+                  # 0003 makes ArgoCD the sole GitOps entrypoint --
+                  # an Application silently stuck out of sync
+                  # indefinitely is exactly the class of gap this
+                  # project's own "never ship a component without its
+                  # alert" rule would flag anywhere else. Excludes five
+                  # real, live, currently-OutOfSync Applications by
+                  # name -- confirmed live (`kubectl get applications`)
+                  # to be a separate, already-understood, accepted
+                  # pattern (each diff is a Bitnami-chart-regenerated
+                  # Secret, not real drift), not silently ignored: a
+                  # general alert on this metric that immediately fires
+                  # on five already-known cases starts life already
+                  # muted by habit. `for: 2h` -- long enough that an
+                  # ordinary in-progress sync during active work
+                  # doesn't page, short enough to catch a real stuck
+                  # Application same-day.
+                  - alert: ArgoCDAppOutOfSync
+                    expr: argocd_app_info{sync_status!="Synced", name!~"clinvar-postgresql|grafana|kafka|postgresql|redis"}
+                    for: 2h
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "ArgoCD Application {{ $labels.name }} has been out of sync for over 2 hours"
+                      description: "argocd_app_info{name=\"{{ $labels.name }}\"} has reported sync_status!=\"Synced\" for 2h+ -- this is not one of the five known Bitnami-Secret-regeneration Applications (clinvar-postgresql/grafana/kafka/postgresql/redis), so this is real, unexplained GitOps drift. Check `kubectl get application {{ $labels.name }} -n argocd -o json` for the real resource-level diff. See backlog #118 for the real prometheus/PVC-resize incident this alert was built to catch."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
