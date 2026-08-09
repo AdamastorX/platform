@@ -9,14 +9,19 @@ backup/restore path at all (`docs/SESSION_STATE.md`).
 
 ## Scope: what has real state worth backing up
 
-Two PostgreSQL instances hold source-of-truth data that cannot be
+Three PostgreSQL instances hold source-of-truth data that cannot be
 regenerated:
 
 - `postgresql` (namespace `api`, database `api`) — owns `work_items`.
 - `clinvar-postgresql` (namespace `clinvar`, database `clinvar`) — owns
   `clinvar_release`/`clinvar_variant_index`.
+- `watchlist-postgresql` (namespace `watchlist`, database `watchlist`)
+  — owns `subscriptions`/`deliveries`. Added 2026-08-09 (backlog #121):
+  `watchlist-service` didn't exist when this runbook was first written,
+  and the gap went unnoticed until a live PVC inventory for
+  `flannel-restore.md` found it.
 
-Both are single-instance Bitnami charts on a single node-pinned
+All three are single-instance Bitnami charts on a single node-pinned
 `local-path` PVC each (ADR 0012/0019).
 
 **Loki and Tempo are deliberately out of scope — decided, not an
@@ -183,6 +188,49 @@ namespace were all deleted after verification. The live `postgresql-0`
 and `clinvar-postgresql-0` pods' restart counts and PVCs were checked
 before and after and are unchanged — nothing about the live instances was
 touched.
+
+## `watchlist-postgresql`, proven live (2026-08-09, backlog #121)
+
+Same exercise, same discipline, for the third instance added to this
+runbook's scope above. The CronJob (`watchlist-postgresql-backup`,
+platform#146) was triggered manually
+(`kubectl create job --from=cronjob/watchlist-postgresql-backup`)
+rather than waiting for its real 03:40 schedule, producing a real
+7,478-byte `pg_dump` in ~seconds. Copied out via a temporary pod
+mounting the backup PVC — this time matching the target's real
+`runAsUser`/`runAsGroup` (1001/1001) from the start, the direct lesson
+`flannel-restore.md` records from the same day's earlier `fsGroup`
+incident, rather than a generic default `busybox` pod.
+
+Restored into a scratch Postgres instance (`bitnamilegacy/postgresql:
+17.1.0-debian-12-r0`, matching the pinned server version, same as the
+other two) in a throwaway namespace (`backup-restore-verify`), via
+`pg_restore --no-owner --no-privileges`. Row counts verified to match
+the live source exactly, across all three real tables:
+
+| Table | Live source | Restored |
+|---|---|---|
+| `subscriptions` | 0 | 0 |
+| `deliveries` | 0 | 0 |
+| `flyway_schema_history` | 1 | 1 |
+
+Both `subscriptions` and `deliveries` are genuinely empty in this
+instance's real current state — not a weaker proof by choice, just
+this service's actual data volume today. Schema and constraints
+(primary keys, the `deliveries_subscription_id_fkey` foreign key, the
+`subscriptions_target_xor` check constraint) all restored correctly,
+confirmed by the restore completing without a schema-level error on a
+clean target.
+
+**Real, isolated RTO measured: 0.308s** — timed around `pg_restore`
+alone, after dropping and recreating the scratch schema to exclude an
+earlier, non-isolated first attempt's timing from the number.
+
+**Cleanup confirmed**: the scratch namespace (and everything in it),
+the temporary read pod, and the manual test Job were all deleted after
+verification. The live `watchlist-postgresql-0`/`watchlist-service`
+pods' restart counts were checked before and after and are unchanged
+(`0`, `8d`) — nothing about the live instance was touched.
 
 ## What this does not cover — accepted risk
 

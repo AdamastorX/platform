@@ -61,7 +61,7 @@ step above:
 |---|---|---|---|
 | `api` | `data-postgresql-0` | — | **Must restore** — source of truth (`work_items`), no regen path. Already covered by `backup-restore.md`. |
 | `clinvar` | `data-clinvar-postgresql-0` | — | **Must restore** — source of truth (`clinvar_release`/`clinvar_variant_index`), no regen path. Already covered by `backup-restore.md`. |
-| `watchlist` | `data-watchlist-postgresql-0` | 2Gi | **Must restore — real gap found writing this runbook.** A third live Postgres instance (8 days old, actively serving `watchlist-service`), same source-of-truth class as the two above, and **`backup-restore.md` doesn't mention it at all.** Not silently worked around here: tracked as a real, separate backlog item (its own nightly `pg_dump` CronJob, same shape as the other two) before this rebuild is attempted, not invented ad hoc on rebuild day. |
+| `watchlist` | `data-watchlist-postgresql-0` | 2Gi | **Must restore — real gap found writing this runbook, now closed.** A third live Postgres instance, same source-of-truth class as the two above. `backup-restore.md` didn't mention it at all when this runbook was first written; it does now. A nightly `pg_dump` CronJob shipped (backlog #121, platform#146), and a real restore was proven the same day — see `backup-restore.md` for the row counts and measured RTO. |
 | `api` / `clinvar` | `postgresql-backup` / `clinvar-postgresql-backup` | — | The *backup* PVCs themselves (`backup-restore.md`'s own CronJob targets) — wiped along with everything else; the real recovery artifact is whatever was last copied off-cluster before the rebuild, not the in-cluster backup PVC surviving the rebuild it's meant to protect against. |
 | `prometheus` | `prometheus-server` | 16Gi | **Should restore.** Not source-of-truth business data, but backlog #94's real 30-day SLO-over-time report clock (started 2026-08-07, live-verified retention history) is a genuine, currently-active, time-sensitive asset a wipe would reset. The exact zero-data-loss copy-out/copy-in mechanism is already proven today, twice: once for #94's own PVC resize, and again fixing this same day's `CrashLoopBackOff` incident (with one addition this runbook inherits — see below). |
 | `mimir` | `mimir-data` | — | Optional, low priority. A second copy of Prometheus's own data plus the incident findings ADR 0038/backlog #108 already wrote down permanently — losing the live pod's data loses nothing not already captured in the ADR/backlog record. Owner has explicitly chosen to keep Mimir running (this runbook does not change that); restoring it is a nice-to-have, not a requirement. |
@@ -138,10 +138,11 @@ today, for real, without touching the live cluster:
   which is exactly why it's written down here instead of left to be
   remembered correctly in the moment.
 
-**What was deliberately not rehearsed today, and stays open before
-#49 is attempted for real**: an actual `terraform destroy` +
-`terraform apply` cycle on this live cluster, and an actual restore of
-the newly-found `watchlist-postgresql` gap (needs its own backup
-CronJob shipped first — see the inventory table). Both are real,
-scoped, remaining preconditions, not glossed over as already covered
-by this document existing.
+**Update (2026-08-09, later same day)**: `watchlist-postgresql`'s
+backup gap is closed — CronJob shipped and a real restore proven
+(backlog #121, platform#146; see `backup-restore.md` for the full
+account). **What's still deliberately not rehearsed, and stays open
+before #49 is attempted for real**: an actual `terraform destroy` +
+`terraform apply` cycle on this live cluster. That remains the one
+real, scoped precondition this document doesn't yet cover, not
+glossed over as already covered by this document existing.
