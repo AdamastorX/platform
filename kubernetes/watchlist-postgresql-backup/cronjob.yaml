@@ -1,0 +1,99 @@
+# backlog#121: daily pg_dump of watchlist-service's `watchlist-postgresql`
+# database. Same mechanism and reasoning as
+# kubernetes/postgresql-backup/cronjob.yaml -- see that file's header
+# for why this is a plain CronJob using pg_dump as the app-owning user
+# rather than the Bitnami chart's own pg_dumpall-as-superuser backup
+# support. Not re-testing whether this instance's `postgres` superuser
+# credential authenticates (api's postgresql's does not, per #23a's own
+# investigation; clinvar-postgresql's does) -- deliberately irrelevant
+# here: all three backup CronJobs use the app-owning user regardless of
+# which instances' superuser happens to work today, so the mechanism is
+# identical across all three rather than one depending on a credential
+# the others don't reliably have.
+#
+# #121 found this instance missing a backup entirely while writing
+# docs/runbooks/flannel-restore.md's PVC inventory (2026-08-09) --
+# watchlist-service didn't exist yet when #23a shipped the other two.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: watchlist-postgresql-backup
+  labels:
+    app: watchlist-postgresql-backup
+spec:
+  # 03:30 -- 15 minutes after clinvar-postgresql-backup's 03:15 (see
+  # that CronJob's schedule comment, itself 15 minutes after
+  # postgresql-backup's 03:00), clear of both on the single node's disk
+  # I/O.
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: watchlist-postgresql-backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            fsGroup: 1001
+          containers:
+            - name: pg-dump
+              image: docker.io/bitnamilegacy/postgresql:17.1.0-debian-12-r0
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  stamp="$(date +%Y-%m-%dT%H-%M-%S)"
+                  file="${PGDUMP_DIR}/${PGDATABASE}-${stamp}.dump"
+                  echo "Dumping ${PGDATABASE}@${PGHOST} -> ${file}"
+                  pg_dump --format=custom --no-password --file="${file}"
+                  echo "Pruning dumps older than ${RETENTION_DAYS} days"
+                  find "${PGDUMP_DIR}" -maxdepth 1 -name '*.dump' -mtime "+${RETENTION_DAYS}" -print -delete
+                  echo "Backup complete:"
+                  ls -lh "${file}"
+              env:
+                - name: PGHOST
+                  value: watchlist-postgresql
+                - name: PGPORT
+                  value: "5432"
+                - name: PGUSER
+                  value: watchlist
+                - name: PGDATABASE
+                  value: watchlist
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: watchlist-postgresql
+                      key: password
+                - name: PGDUMP_DIR
+                  value: /backup/pgdump
+                - name: RETENTION_DAYS
+                  value: "14"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup/pgdump
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: watchlist-postgresql-backup

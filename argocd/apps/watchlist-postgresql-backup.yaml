@@ -1,0 +1,33 @@
+# backlog#121: daily pg_dump CronJob + its own separate backup PVC for
+# watchlist-service's `watchlist-postgresql` -- see
+# kubernetes/watchlist-postgresql-backup/cronjob.yaml for the mechanism
+# (identical to postgresql-backup.yaml/clinvar-postgresql-backup.yaml)
+# and docs/runbooks/backup-restore.md for the decision this extends,
+# plus docs/runbooks/flannel-restore.md for the real gap that found
+# this instance missing a backup in the first place.
+#
+# Same destination namespace as watchlist-postgresql.yaml (watchlist)
+# -- the CronJob only needs to reach that Service and its
+# existingSecret, both already in-namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: watchlist-postgresql-backup
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/watchlist-postgresql-backup
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: watchlist
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
