@@ -497,6 +497,26 @@ spec:
           # accepts writes without one.
           remoteWrite:
             - url: http://mimir.mimir.svc.cluster.local:8080/api/v1/push
+              # 2026-08-09 incident: Mimir's remote-write receiver rejects
+              # any series carrying a dotted label name with a hard 400
+              # (err-mimir-label-invalid) -- the OTel Collector's own
+              # self-monitoring metric (otelcol_exporter_send_failed_spans)
+              # exposes OTel semconv attribute names ("server.address",
+              # "server.port") directly as Prometheus labels, which this
+              # Prometheus's own scrape/query path tolerates but Mimir's
+              # stricter legacy validation does not. Because remote-write
+              # batches multiple series per request, one invalid series
+              # failed the *entire* batch every ~1-2min (failedSampleCount
+              # 1500-1700 per occurrence, non-recoverable/dropped, not
+              # retried) -- silently degrading Mimir's copy of everything,
+              # not just this one metric. Dropped before send rather than
+              # renamed: this is Collector self-monitoring data with no
+              # real analytical value here, not worth preserving under a
+              # sanitized name.
+              writeRelabelConfigs:
+                - source_labels: [__name__]
+                  regex: otelcol_exporter_send_failed_spans
+                  action: drop
           # Fixed local address (no more port-forward for day-to-day
           # access) -- same adamastorx-ca/Traefik pattern api's own
           # Ingress uses (ADR 0021). Local-only for now (ADR 0004, no
