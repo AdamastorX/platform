@@ -555,15 +555,19 @@ spec:
         #     self-reported by workers' own JVM, so it goes completely
         #     dark -- not a high number, no series at all -- exactly when
         #     the consumer is fully stopped, which is the one case
-        #     WorkersConsumerLagHigh structurally cannot catch. Backlog
-        #     #63: this is also exactly why KEDA's ScaledObject
-        #     (kubernetes/workers/scaledobject.yaml) deliberately does
-        #     NOT use scale-to-zero -- minReplicaCount stays 1, with the
-        #     reason stated in that file -- zero replicas would make this
-        #     rule fire on every ordinary idle-drain, not only a real
-        #     stuck-consumer incident, and there is no already-available
-        #     signal in this cluster (kube-state-metrics is disabled) to
-        #     tell the two apart yet.
+        #     WorkersConsumerLagHigh structurally cannot catch.
+        #     Backlog #113 (2026-08-08): KEDA's ScaledObject
+        #     (kubernetes/workers/scaledobject.yaml) now scales to zero
+        #     on real idle-drain -- gated on
+        #     kube_deployment_status_replicas{deployment="workers"} > 0
+        #     (kube-state-metrics, real since backlog #92) so this rule
+        #     only fires when Kubernetes itself still reports a real
+        #     running/desired replica, not when KEDA has genuinely
+        #     scaled to zero. The `for: 3m` duration (unchanged) already
+        #     covers the real, single-digit-second race between KEDA
+        #     setting desired replicas to 0 and the old pod actually
+        #     terminating -- see that file's own comment for the full
+        #     reasoning and live verification record.
         #   ClinVarIngestionFreshnessBreach: no ClinVar ingestion job has
         #     reached status=succeeded in over a week (backlog #54: real
         #     job outcomes, not "an attempt happened") -- check the most
@@ -722,13 +726,13 @@ spec:
                   # genuinely stuck-down consumer in minutes, not the
                   # 95-minute silent stall #35's own incident had.
                   - alert: WorkersConsumerMissing
-                    expr: absent(kafka_consumer_fetch_manager_records_lag{job="workers"})
+                    expr: kube_deployment_status_replicas{deployment="workers"} > 0 and absent(kafka_consumer_fetch_manager_records_lag{job="workers"})
                     for: 3m
                     labels:
                       severity: critical
                     annotations:
                       summary: "workers consumer-lag metric missing -- consumer likely not running"
-                      description: "workers has reported no kafka_consumer_fetch_manager_records_lag series for 3m -- almost certainly means the pod isn't running/scraped at all, not that lag is low. Check `kubectl get pods -n workers` directly. See backlog #76 / observability/chaos/03-consumer-lag.md."
+                      description: "workers has reported no kafka_consumer_fetch_manager_records_lag series for 3m while Kubernetes itself still reports a real running/desired replica -- almost certainly means the pod is up but not scraped/consuming, not that KEDA correctly scaled it to zero. Check `kubectl get pods -n workers` directly. See backlog #76/#113 / observability/chaos/03-consumer-lag.md."
 
                   # clinvar-service ingestion freshness (ADR 0020: time
                   # since last *successful* ingestion exceeding the
