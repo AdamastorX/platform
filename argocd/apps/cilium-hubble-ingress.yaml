@@ -1,0 +1,29 @@
+# Standalone Ingress for Hubble UI (backlog #49) -- see
+# kubernetes/cilium-hubble-ingress/ingress.yaml for the manifest and
+# cilium.yaml's own header for why this is a separate Application
+# rather than folded into that one.
+#
+# Destination is kube-system, not a new namespace: hubble-ui's real
+# Service lives wherever the Cilium chart itself deploys (kube-system,
+# same as every other Cilium/Hubble component -- cilium.yaml's own
+# destination.namespace), not a namespace this Ingress owns.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium-hubble-ingress
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/cilium-hubble-ingress
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
