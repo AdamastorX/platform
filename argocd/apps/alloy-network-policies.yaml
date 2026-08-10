@@ -1,0 +1,28 @@
+# backlog #50: alloy namespace's real NetworkPolicies -- fourth real
+# batch, same discipline as clinvar-network-policies.yaml/
+# api-network-policies.yaml/workers-network-policies.yaml (real
+# observed Hubble flows). No rules.dns/toFQDNs anywhere (alloy has no
+# public egress), so this batch was never exposed to the real, live
+# DNS-proxy bug the api/clinvar batches hit and fixed (platform#156).
+#
+# Deliberately NOT auto-synced on first apply, same reasoning as the
+# sibling network-policies Applications/cilium.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy-network-policies
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/alloy-network-policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: alloy
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
