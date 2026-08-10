@@ -1,0 +1,37 @@
+# Fixed local address for Hubble UI (backlog #49) -- same
+# adamastorx-ca/Traefik pattern argocd/grafana/api/prometheus/
+# alertmanager/clinvar-viewer already use. A standalone Application,
+# not part of cilium.yaml itself: same "one Application per concern"
+# convention alloy-ingress.yaml/argocd-ingress.yaml already establish,
+# and cilium.yaml's own header names this as deliberately deferred to
+# its own follow-up.
+#
+# hubble-ui's real Service (chart default, confirmed live against the
+# rebuilt cluster): ClusterIP, port 80 -- no TLS-termination quirk to
+# work around here the way argocd-ingress.yaml's server.insecure step
+# had to (hubble-ui's own nginx frontend serves plain HTTP already).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hubble-ui
+  labels:
+    app: hubble-ui
+  annotations:
+    cert-manager.io/cluster-issuer: adamastorx-ca
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: hubble.local.adamastorx.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hubble-ui
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - hubble.local.adamastorx.test
+      secretName: hubble-ui-tls

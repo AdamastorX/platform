@@ -237,6 +237,29 @@ spec:
               - role: pod
                 namespaces:
                   names: ['workers']
+          # Hubble flow metrics (backlog #49): the endpoint this whole
+          # item's own metrics.enabled list (argocd/apps/cilium.yaml)
+          # exists to expose. hubble-metrics is a real headless Service
+          # (ClusterIP: None, confirmed live) fronting the cilium-agent
+          # DaemonSet's own hubble-metrics named port (9965) -- pod-role
+          # discovery scoped to kube-system, same "no stable single-IP
+          # Service to target" shape as workers above, filtered down to
+          # only cilium's own pods and only that one named port so this
+          # doesn't also start scraping every other kube-system pod
+          # (coredns, metrics-server, etc.) that happens to share the
+          # namespace.
+          - job_name: hubble
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['kube-system']
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+                regex: cilium
+                action: keep
+              - source_labels: [__meta_kubernetes_pod_container_port_name]
+                regex: hubble-metrics
+                action: keep
           - job_name: clinvar-service
             metrics_path: /metrics
             static_configs:
