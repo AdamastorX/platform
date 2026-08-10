@@ -1,0 +1,146 @@
+# backlog #50: clinvar-service's own default-deny + explicit allows,
+# derived from real observed Hubble flows (2026-08-10, `hubble observe
+# --since 5m -o json` against the live rebuilt cluster) cross-checked
+# against the real architecture, not guessed from the docs alone --
+# the gap between the two (see below) is itself part of this item's AC.
+#
+# Applying ANY CiliumNetworkPolicy that selects a pod switches that pod
+# from Cilium's default-allow into default-deny for exactly this
+# endpoint -- every real flow this pod needs has to be named here, in
+# one shot, not added incrementally while traffic is already cut.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: clinvar-service
+  namespace: clinvar
+spec:
+  endpointSelector:
+    matchLabels:
+      app: clinvar-service
+  ingress:
+    # api -> clinvar-service (backlog #50's own named minimum: this is
+    # it). Real, observed: api/api -> clinvar/clinvar-service:8000.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app: api
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # Prometheus scrapes clinvar-service directly (argocd/apps/
+    # prometheus.yaml's clinvar-service static target). Real, observed:
+    # prometheus/prometheus -> clinvar/clinvar-service:8000.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: prometheus
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    # Real, observed: clinvar/clinvar-service -> kube-system/kube-dns:53
+    # (implied by every other successful egress below; not directly
+    # captured as its own log line in the 5-minute sample, but this is
+    # the one flow this project's own real architecture makes certain
+    # rather than assumed -- every service here resolves Service DNS
+    # names for everything it calls).
+    #
+    # rules.dns (review finding): a toFQDNs rule (clinvar-service-ncbi-
+    # egress.yaml) only works if Cilium's DNS proxy actually sees this
+    # pod's DNS lookups -- that needs an explicit L7 DNS rule on the
+    # port-53 egress, not just an L3/L4 port-53 allow. Without this,
+    # toFQDNs silently matches nothing and NCBI stays denied even though
+    # the policy "looks" like it allows it -- caught by review before
+    # ever reaching the real ingestion job that would have hit it.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # clinvar-service -> Kafka (produces to clinvar.ingestion.completed,
+    # watchlist-service's own real trigger topic, ADR 0026/backlog #53).
+    # CRITICAL review finding: missing from the original version of this
+    # policy entirely -- clinvar-service holds a real, live, established
+    # connection to kafka-controller-0:9092 (confirmed against the pod's
+    # own live socket table, not just Hubble's short flow buffer, which
+    # can miss an already-established long-lived connection). Applying
+    # the policy without this would have cut real production traffic on
+    # apply -- caught by review before that happened, not after.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kafka
+            app.kubernetes.io/name: kafka
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # clinvar-service -> its own PostgreSQL. Real, observed:
+    # clinvar/clinvar-service -> clinvar/clinvar-postgresql-0:5432.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: clinvar
+            app.kubernetes.io/name: postgresql
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # clinvar-service -> OTel Collector (traces). Real, observed:
+    # clinvar/clinvar-service -> otel/opentelemetry-collector:4318.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: otel
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "4318"
+              protocol: TCP
+    # clinvar-service -> Pyroscope (continuous profiling push, backlog
+    # #57). Real, observed: clinvar/clinvar-service ->
+    # pyroscope/pyroscope:4040.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: pyroscope
+            app.kubernetes.io/name: pyroscope
+      toPorts:
+        - ports:
+            - port: "4040"
+              protocol: TCP
+    # clinvar-service -> NCBI (the only permitted public egress in the
+    # cluster, backlog #50's own AC). NOT covered here, in a separate
+    # policy instead (clinvar-service-ncbi-egress.yaml, same pod
+    # selector, rules union across policies) -- correction (review
+    # finding): the real Cilium constraint is per egress-rule-entry, not
+    # per policy (a toFQDNs entry can't share one egress list *item*
+    # with toEndpoints/toCIDR, but a policy's egress list can hold a
+    # toFQDNs entry alongside other entries). Kept as a separate policy
+    # anyway for a real, independent reason: it's a different kind of
+    # rule (public internet egress vs. in-cluster east-west), worth
+    # reviewing and removing on its own if this project's NCBI source
+    # ever changes, without touching the rest of this pod's real
+    # in-cluster traffic.
+    #
+    # Real, honest gap between observed and documented (backlog #50's own
+    # AC asks for exactly this comparison to be recorded): the real
+    # ClinVar ingestion job (services/clinvar-service, config.py,
+    # CLINVAR_SOURCE_VCF_URL=https://ftp.ncbi.nlm.nih.gov/pub/clinvar/
+    # vcf_GRCh38/clinvar.vcf.gz) did NOT fire during this 5-minute Hubble
+    # capture window -- it's a periodic/triggered job, not constant
+    # traffic. This policy's NCBI allow is derived from the real,
+    # documented source URL (docs/data-sources.md, services/
+    # clinvar-service/README.md), not from a live-observed flow. The
+    # real live-observed verification for this one specific rule is
+    # still open: trigger a real ClinVar ingestion run after this policy
+    # is live and confirm it succeeds (or, if NCBI blocks it, that the
+    # denied-flow itself shows up in Hubble exactly where this policy
+    # would cause it to).

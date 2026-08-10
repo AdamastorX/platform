@@ -1,0 +1,51 @@
+# backlog #50: clinvar's own PostgreSQL default-deny + explicit allows.
+# Real, observed (`hubble observe --since 5m`): clinvar/clinvar-service
+# -> clinvar/clinvar-postgresql-0:5432. The nightly backup CronJob
+# (clinvar-postgresql-backup, kubernetes/clinvar-postgresql-backup/
+# cronjob.yaml, real label app: clinvar-postgresql-backup) did not fire
+# during the 5-minute capture window (its real schedule is 03:15 daily)
+# but is real, documented, same-namespace traffic that needs the same
+# allow -- named explicitly here rather than assumed covered by a
+# broader same-namespace rule, matching this project's own "explicit
+# allows, not guessed" discipline.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: clinvar-postgresql
+  namespace: clinvar
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: clinvar
+            app: clinvar-service
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: clinvar
+            app: clinvar-postgresql-backup
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  egress:
+    # DNS only -- Postgres itself doesn't call out to anything else in
+    # this architecture. Defensive, not observed calling DNS directly
+    # in the 5-minute sample, but the Bitnami postgresql image's own
+    # entrypoint/healthcheck scripts may resolve names on startup.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

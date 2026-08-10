@@ -1,0 +1,26 @@
+# backlog #50: clinvar-service's one permitted public egress -- NCBI,
+# the real source of the ClinVar VCF release (docs/data-sources.md,
+# services/clinvar-service/README.md's real CLINVAR_SOURCE_VCF_URL/
+# CLINVAR_SOURCE_TBI_URL). A separate CiliumNetworkPolicy object,
+# deliberately: `toFQDNs` cannot occur in the same policy as other
+# `To*` egress rules (confirmed live, `kubectl explain
+# ciliumnetworkpolicy.spec.egress.toFQDNs`), so this can't be folded
+# into clinvar-service.yaml's own egress list. Both policies select the
+# same pod; Cilium unions all matching policies' rules for that
+# endpoint, so this is additive, not a replacement.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: clinvar-service-ncbi-egress
+  namespace: clinvar
+spec:
+  endpointSelector:
+    matchLabels:
+      app: clinvar-service
+  egress:
+    - toFQDNs:
+        - matchName: "ftp.ncbi.nlm.nih.gov"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
