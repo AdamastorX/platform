@@ -1,0 +1,335 @@
+# backlog #50: prometheus-server's own default-deny + explicit allows.
+# Real, derived from a live 10-minute `hubble observe --namespace
+# prometheus` capture (2026-08-10) against the rebuilt cluster,
+# cross-checked against argocd/apps/prometheus.yaml's real
+# extraScrapeConfigs (every named `job_name`) and its own live
+# `/api/v1/targets` output (the chart's own default kubernetes-sd jobs
+# -- kubernetes-api-servers/-nodes/-nodes-cadvisor/-pods/-service-
+# endpoints -- add real targets extraScrapeConfigs alone doesn't show).
+# By far the largest fan-out of any policy this item has written --
+# Prometheus's whole job is talking to nearly everything.
+#
+# Applying ANY CiliumNetworkPolicy that selects a pod switches that pod
+# from Cilium's default-allow into default-deny for exactly this
+# endpoint -- every real flow this pod needs has to be named here, in
+# one shot, not added incrementally while traffic is already cut.
+#
+# No rules.dns/toFQDNs anywhere (backlog #50's own real, live DNS-proxy
+# incident -- see this item's backlog entry): prometheus-server has no
+# real public egress of its own (blackbox-exporter is the one
+# component in this cluster that makes outbound HTTP probes to public-
+# looking hostnames, and even those resolve to the internal Ingress,
+# not the real internet -- Prometheus itself only ever calls
+# blackbox-exporter's own /probe endpoint, in-cluster).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: prometheus-server
+  namespace: prometheus
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/component: server
+  ingress:
+    # kubelet's own probes -- two containers in this pod, each with its
+    # own probe port (prometheus-server: 9090; the config-reloader
+    # sidecar: 8080/"metrics"). Real, observed: 10.42.0.158 (host) ->
+    # prometheus-server:8080; kubelet's liveness/readinessProbe.httpGet
+    # confirmed live to target port 9090 on the main container.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
+    # Traefik -> prometheus-server (the real Ingress path,
+    # prometheus.local.adamastorx.test -> Service port 80 ->
+    # targetPort 9090). Not captured live in this 10-minute window (no
+    # one browsing the dashboard during the capture), but certain from
+    # the real Ingress object (`kubectl get ingress -n prometheus`),
+    # same "certain rather than assumed" reasoning as the DNS rule in
+    # every sibling policy.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: traefik
+            app.kubernetes.io/name: traefik
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+    # Grafana -> prometheus-server (its own real datasource,
+    # argocd/apps/grafana.yaml's `url: http://prometheus-server.
+    # prometheus.svc.cluster.local`). Same "certain from real config,
+    # not captured live this window" reasoning as the Traefik rule
+    # above.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: grafana
+            app.kubernetes.io/name: grafana
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    # Plain L3/L4 only, no rules.dns (the real, live DNS-proxy bug this
+    # item's backlog entry records).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # CoreDNS's own metrics (the "kubernetes-service-endpoints" job's
+    # kube-dns target). Same pod/selector as DNS above, different port.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "9153"
+              protocol: TCP
+    # api (job_name: api, /actuator/prometheus). Real, observed
+    # container port (post-DNAT from the Service's port 80): 8080.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app: api
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # otel-collector's own self-monitoring metrics (job_name:
+    # otel-collector, :8888).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: otel
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "8888"
+              protocol: TCP
+    # workers (job_name: workers, pod-role SD, /actuator/prometheus).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: workers
+            app: workers
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # clinvar-service (job_name: clinvar-service, /metrics). Real
+    # observed container port (post-DNAT from the Service's port 80),
+    # same lesson as api-network-policies/clinvar-network-policies:
+    # 8000, not 80.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: clinvar
+            app: clinvar-service
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # watchlist-service (job_name: watchlist-service,
+    # /actuator/prometheus). Real observed container port: 8080.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: watchlist
+            app: watchlist-service
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # news-ingestor (job_name: news-ingestor, pod-role SD,
+    # /actuator/prometheus).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: news-ingestor
+            app: news-ingestor
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # traefik's own metrics (job_name: traefik, pod-role SD filtered to
+    # the "metrics" container port). Real, confirmed live via the
+    # running pod's own args (--entryPoints.metrics.address=:9100).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: traefik
+            app.kubernetes.io/name: traefik
+      toPorts:
+        - ports:
+            - port: "9100"
+              protocol: TCP
+    # keda (job_name: keda, pod-role SD filtered to the "metrics" port)
+    # -- one selector covers both real live targets (keda-operator,
+    # keda-operator-metrics-apiserver), which share
+    # app.kubernetes.io/instance: keda but differ in
+    # app.kubernetes.io/name.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: keda
+            app.kubernetes.io/instance: keda
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # market-data-ingestor (job_name: market-data-ingestor, pod-role SD,
+    # /actuator/prometheus).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: market-data-ingestor
+            app: market-data-ingestor
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # sentiment-analyzer (job_name: sentiment-analyzer, pod-role SD,
+    # /metrics -- FastAPI, not Actuator). Real observed container port:
+    # 8000.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: sentiment-analyzer
+            app: sentiment-analyzer
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # aggregator (job_name: aggregator, /actuator/prometheus). Real
+    # observed container port (post-DNAT from the Service's port 80):
+    # 8080.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: aggregator
+            app: aggregator
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # blackbox-exporter (3 jobs: blackbox-http-2xx/-2xx-auth/
+    # -401-expected, all hitting the same /probe endpoint, port 9115).
+    # Prometheus only ever talks to blackbox-exporter itself here --
+    # blackbox-exporter is the one that makes the real outbound HTTP
+    # probe, through the in-cluster Ingress, not Prometheus directly.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: blackbox-exporter
+            app.kubernetes.io/name: prometheus-blackbox-exporter
+      toPorts:
+        - ports:
+            - port: "9115"
+              protocol: TCP
+    # ArgoCD's own metrics (job_name: argocd, argocd-metrics Service ->
+    # real selector app.kubernetes.io/name: argocd-application-
+    # controller, confirmed live via `kubectl get svc -n argocd
+    # argocd-metrics -o jsonpath='{.spec.selector}'`).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: argocd
+            app.kubernetes.io/name: argocd-application-controller
+      toPorts:
+        - ports:
+            - port: "8082"
+              protocol: TCP
+    # cert-manager's own metrics (the chart-default "kubernetes-pods"
+    # annotation-driven job) -- one selector covers all 3 real live
+    # pods (controller/cainjector/webhook), which share
+    # app.kubernetes.io/instance: cert-manager but differ in
+    # app.kubernetes.io/name.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cert-manager
+            app.kubernetes.io/instance: cert-manager
+      toPorts:
+        - ports:
+            - port: "9402"
+              protocol: TCP
+    # Mimir -- NOT a scrape target (found while enumerating this
+    # policy's real flows): this Prometheus `remote_write`s to Mimir
+    # (argocd/apps/prometheus.yaml's `remoteWrite: url: http://mimir.
+    # mimir.svc.cluster.local:8080/api/v1/push`), the opposite
+    # direction from every other rule in this file. Real, observed:
+    # prometheus-server -> mimir:8080.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: mimir
+            app: mimir
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # prometheus-server -> its own namespace's Alertmanager (pushes
+    # real alerts here -- alertmanager itself is deliberately NOT
+    # given its own CiliumNetworkPolicy, see this directory's own
+    # kube-state-metrics.yaml header and this item's backlog entry: a
+    # real, live, already-active ntfy webhook egress in the same
+    # toFQDNs-blocked class as NCBI/GitHub, except breaking it would
+    # kill real alerting).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: prometheus
+            app.kubernetes.io/name: alertmanager
+      toPorts:
+        - ports:
+            - port: "9093"
+              protocol: TCP
+    # prometheus-server -> its own namespace's kube-state-metrics (job_
+    # name folded into the chart-default "kubernetes-service-endpoints"
+    # job -- 2 real ports scraped, :8080 and :8081).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: prometheus
+            app.kubernetes.io/name: kube-state-metrics
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "8081"
+              protocol: TCP
+    # Every remaining real scrape target lives on the node itself, not
+    # a distinct pod -- either a genuine host process (the API server,
+    # kubelet/cadvisor) or a pod running `hostNetwork: true`, which
+    # shares Cilium's `reserved:host` identity with no Cilium endpoint
+    # of its own (confirmed live, `cilium-dbg endpoint list`, for
+    # node-exporter and cilium-agent/cilium-operator -- a
+    # CiliumNetworkPolicy selecting such a pod by label would not
+    # actually be enforced, so none of them get one; this rule is the
+    # only real way to reach them):
+    #   6443  kubernetes-api-servers (job_name added by the chart)
+    #   10250 kubernetes-nodes / kubernetes-nodes-cadvisor (kubelet)
+    #   9100  prometheus-node-exporter (kubernetes-service-endpoints)
+    #   9963  cilium-operator (kubernetes-pods, kube-system)
+    #   9965  hubble-metrics (job_name: hubble; also
+    #         kubernetes-service-endpoints)
+    #   9090  Beyla (job_name: beyla) -- Beyla's own Service
+    #         (beyla.beyla.svc.cluster.local:80) DNATs to its real
+    #         hostNetwork pod at containerPort 9090; confirmed live via
+    #         `kubectl get svc -n beyla beyla -o jsonpath=
+    #         '{.spec.ports}'` after the ClusterIP-vs-container-port
+    #         lesson (this item's own backlog entry) made the earlier
+    #         `prometheus-server -> 192.168.1.10:9090 (host)` flow look
+    #         unexplained until checked directly, not assumed.
+    - toEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+            - port: "10250"
+              protocol: TCP
+            - port: "9100"
+              protocol: TCP
+            - port: "9963"
+              protocol: TCP
+            - port: "9965"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
