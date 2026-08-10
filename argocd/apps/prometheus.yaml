@@ -1164,13 +1164,13 @@ spec:
                   # doesn't page, short enough to catch a real stuck
                   # Application same-day.
                   - alert: ArgoCDAppOutOfSync
-                    expr: argocd_app_info{sync_status!="Synced", name!~"clinvar-postgresql|grafana|kafka|postgresql|redis"}
+                    expr: argocd_app_info{sync_status!="Synced", name!~"clinvar-postgresql|grafana|kafka|postgresql|redis|cilium"}
                     for: 2h
                     labels:
                       severity: warning
                     annotations:
                       summary: "ArgoCD Application {{ $labels.name }} has been out of sync for over 2 hours"
-                      description: "argocd_app_info{name=\"{{ $labels.name }}\"} has reported sync_status!=\"Synced\" for 2h+ -- this is not one of the five known Bitnami-Secret-regeneration Applications (clinvar-postgresql/grafana/kafka/postgresql/redis), so this is real, unexplained GitOps drift. Check `kubectl get application {{ $labels.name }} -n argocd -o json` for the real resource-level diff. See backlog #118 for the real prometheus/PVC-resize incident this alert was built to catch."
+                      description: "argocd_app_info{name=\"{{ $labels.name }}\"} has reported sync_status!=\"Synced\" for 2h+ -- this is not one of the known-benign Applications (clinvar-postgresql/grafana/kafka/postgresql/redis: Bitnami-Secret regeneration; cilium, backlog #49: auto-generated Hubble mTLS certs in the cilium-ca/hubble-relay-client-certs Secrets regenerate on every helm template/helm install run and never byte-match git's rendered copy), so this is real, unexplained GitOps drift. Check `kubectl get application {{ $labels.name }} -n argocd -o json` for the real resource-level diff. See backlog #118 for the real prometheus/PVC-resize incident this alert was built to catch."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
