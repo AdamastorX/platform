@@ -69,6 +69,39 @@ spec:
         # Rendered into KUBERNETES_SERVICE_HOST/PORT on every Cilium pod.
         k8sServiceHost: "192.168.1.10"
         k8sServicePort: "6443"
+        # --- DNS proxy ----------------------------------------------------
+        # Real, live incident (2026-08-10): the chart's version-dependent
+        # default for this cluster's setup is transparent mode ON (confirmed
+        # live: cilium-config ConfigMap read `dnsproxy-enable-transparent-
+        # mode: "true"` with no explicit override anywhere in this file). A
+        # real CiliumNetworkPolicy with `toFQDNs` (needing `rules.dns` L7
+        # visibility on the DNS egress rule) was applied to two real
+        # namespaces and broke ALL DNS resolution for the affected pods --
+        # not just the intended FQDN, in-cluster Service DNS too (confirmed
+        # live: a debug pod's `curl` to an in-cluster Postgres hostname
+        # timed out with "Resolving timed out"; emergency-rolled-back via
+        # `kubectl delete ciliumnetworkpolicy`, DNS confirmed working again
+        # immediately after). Root-caused to a real, open, upstream Cilium
+        # bug (github.com/cilium/cilium/issues/46284, still open, no
+        # 1.20.x patch release exists as of this fix): transparent mode's
+        # TPROXY + kernel policy-routing only works on the INPUT/PREROUTING
+        # path, never for locally-originated (OUTPUT) pod traffic under
+        # tunnel-mode-without-IPSec -- exactly this cluster's real setup
+        # (routingMode: tunnel, vxlan, no IPSec). Redirected DNS packets get
+        # dropped (UdpNoPorts) and never receive a reply.
+        #
+        # Disabled explicitly rather than left at the broken default.
+        # Real, checked tradeoff, not glossed: non-transparent mode loses
+        # original-source-IP preservation on DNS queries as CoreDNS sees
+        # them (irrelevant here -- single node, in-cluster CoreDNS, no
+        # policy or logging depends on that source IP). The one real,
+        # documented dependency on transparent mode is IPSec, which this
+        # cluster doesn't use. toFQDNs/rules.dns policies are unaffected --
+        # non-transparent mode is DNS proxying's original, long-supported
+        # path; transparent mode was added later, default-off, specifically
+        # for source-IP preservation and IPSec, not to make toFQDNs work.
+        dnsProxy:
+          enableTransparentMode: false
         # --- IPAM -------------------------------------------------------
         # flannel is gone, so Cilium owns pod IPAM. Match k3s's default pod
         # CIDR (10.42.0.0/16) instead of Cilium's own 10.0.0.0/8 default, so
