@@ -2,13 +2,27 @@
 # derived from a live 5-minute `hubble observe --namespace alloy`
 # capture (2026-08-10) against the rebuilt cluster.
 #
-# No ingress rule: nothing calls alloy (a log-shipping DaemonSet, no
-# Kubernetes Service, no `prometheus.io/scrape` annotation -- confirmed
-# live, `kubectl get pod -n alloy alloy-nl2sx -o
-# jsonpath='{.metadata.annotations}'` -- so Prometheus's generic
-# annotation-driven jobs don't pick it up either). An empty `ingress:`
-# list means default-deny with zero allows, which is the real, correct
-# posture here, not an oversight.
+# No real ingress caller: nothing calls alloy (a log-shipping
+# DaemonSet, no Kubernetes Service, no `prometheus.io/scrape`
+# annotation -- confirmed live, `kubectl get pod -n alloy alloy-nl2sx
+# -o jsonpath='{.metadata.annotations}'` -- so Prometheus's generic
+# annotation-driven jobs don't pick it up either).
+#
+# CORRECTION (2026-08-10, real finding from backlog #50's own
+# closure): an earlier version of this file simply omitted the
+# `ingress:` key, on the assumption that meant real default-deny with
+# zero allows. Confirmed live to be WRONG -- `cilium-dbg endpoint list`
+# showed this endpoint's `policy-enabled` as `egress` only, never
+# `both`; Cilium does not enable ingress enforcement for an endpoint
+# unless the policy actually contains at least one real ingress rule
+# object. An omitted key (or an explicitly empty `ingress: []`, also
+# tested live) leaves ingress completely unenforced -- real
+# default-ALLOW, the opposite of the original intent, though with no
+# live exposure found (nothing legitimately or illegitimately calls
+# alloy today). Fixed with a real ingress rule below that structurally
+# exists but can never match anything real -- confirmed live this
+# flips `policy-enabled` to `both`, the genuine default-deny-zero-
+# allows posture originally intended.
 #
 # No rules.dns/toFQDNs (backlog #50's own real, live DNS-proxy
 # incident -- see this item's backlog entry and clinvar-service.yaml/
@@ -24,6 +38,17 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: alloy
+  ingress:
+    # No real ingress caller exists (see header) -- this rule's own
+    # selector is written to never match a real namespace, purely to
+    # make Cilium actually enforce ingress default-deny (see header's
+    # CORRECTION for why an absent/empty ingress list doesn't do this
+    # on its own). If a real caller is ever needed, replace this
+    # placeholder with that caller's own real fromEndpoints rule rather
+    # than adding a second ingress entry alongside it.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: this-namespace-never-exists-by-design
   egress:
     # DNS, explicitly, everywhere -- backlog #50's own named footgun.
     - toEndpoints:
