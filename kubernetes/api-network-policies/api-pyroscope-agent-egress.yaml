@@ -1,10 +1,3 @@
-# EXCLUDED from argocd/apps/api-network-policies.yaml's sync
-# (spec.source.directory.exclude) as of 2026-08-10: needs the rules.dns
-# L7 DNS proxy path, which a real, live incident proved broken in this
-# cluster (see api.yaml and this item's backlog entry). Kept in git,
-# not deleted -- re-include the moment the upstream Cilium bug is
-# actually fixed, don't rewrite this file from scratch.
-#
 # backlog #50: api's one real public egress -- the pyroscope-agent-
 # fetch init container (kubernetes/api/rollout.yaml) downloads the
 # Pyroscope Java agent jar from a real GitHub release on every pod
@@ -16,14 +9,40 @@
 # start -- is out of scope for this platform-only PR, a services-repo
 # change; tracked separately, not silently deferred).
 #
-# github.com itself 302-redirects release-asset downloads to a real
-# release-assets.githubusercontent.com CDN host (confirmed live,
-# `curl -sIL`, 2026-08-10) -- GitHub's own redirect target subdomain
-# has changed before (older documented cases used a different
-# *.githubusercontent.com host), so this matches the whole CDN domain
-# via a wildcard rather than pinning today's exact subdomain, to avoid
-# this policy silently breaking the next time GitHub reshuffles its
-# release-asset CDN without this file being touched.
+# REWRITTEN 2026-08-10 from `toFQDNs` to `toCIDR`: `toFQDNs` needs the
+# `rules.dns` L7 DNS-proxy path, which a real, twice-reproduced live
+# incident proved drops ALL locally-originated pod DNS under this
+# cluster's config (tunnel/vxlan + socket-LB; upstream
+# cilium/cilium#46284 -- full account in backlog #50). `toCIDR` is a
+# pure L3 IP match that never touches DNS or the proxy.
+#
+# Where these CIDRs come from -- GitHub's own published ranges, not a
+# resolved single IP: https://api.github.com/meta, `web` key, IPv4
+# entries, retrieved 2026-08-10 (`curl -s https://api.github.com/meta |
+# jq '.web'`). Verified to actually cover both hosts this init
+# container hits, not assumed:
+#   - github.com resolved to 140.82.121.3 (2026-08-10), inside
+#     140.82.112.0/20 (in `web`).
+#   - github.com 302-redirects release-asset downloads to
+#     release-assets.githubusercontent.com (re-confirmed 2026-08-10 via
+#     `curl -sI` against rollout.yaml's exact jar URL -- the Location
+#     header points at release-assets.githubusercontent.com), which
+#     resolved to
+#     185.199.108.133/109.133/110.133/111.133 -- all inside
+#     185.199.108.0/22 (in `web`). meta's `actions`/`dependabot` keys
+#     were checked too: those are runner/dependabot EGRESS source
+#     ranges, not CDN serving ranges -- `web` is the key that
+#     demonstrably contains the release-asset CDN's addresses.
+# IPv6 entries from `web` are omitted: this cluster's pods are
+# IPv4-only (checked live -- podIPs carries a single 10.42.x address).
+#
+# The honest tradeoff vs. toFQDNs: GitHub can re-shuffle its published
+# ranges without this file being touched, and then a fresh api pod
+# sticks at Init:Error with the agent fetch timing out. If that
+# happens, re-pull the meta endpoint (command above) and diff against
+# this list before suspecting anything else. Revisit as `toFQDNs`
+# if/when the upstream DNS-proxy bug is actually fixed -- that form is
+# the preferred end state, this is the workaround.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -34,9 +53,35 @@ spec:
     matchLabels:
       app: api
   egress:
-    - toFQDNs:
-        - matchName: "github.com"
-        - matchPattern: "*.githubusercontent.com"
+    # The full IPv4 `web` list as published 2026-08-10 -- the four
+    # aggregate ranges carry today's observed traffic; the /32s are
+    # GitHub's own additional published web front-doors, kept for
+    # fidelity with the source rather than trimmed by guesswork.
+    - toCIDR:
+        - 192.30.252.0/22
+        - 185.199.108.0/22
+        - 140.82.112.0/20
+        - 143.55.64.0/20
+        - 20.201.28.151/32
+        - 20.205.243.166/32
+        - 20.87.245.0/32
+        - 4.237.22.38/32
+        - 4.228.31.150/32
+        - 20.207.73.82/32
+        - 20.27.177.113/32
+        - 20.200.245.247/32
+        - 20.175.192.147/32
+        - 20.233.83.145/32
+        - 20.29.134.23/32
+        - 20.199.39.232/32
+        - 20.217.135.5/32
+        - 4.225.11.194/32
+        - 4.208.26.197/32
+        - 20.26.156.215/32
+        - 172.182.252.133/32
+        - 4.249.131.164/32
+        - 48.202.248.40/32
+        - 48.204.201.5/32
       toPorts:
         - ports:
             - port: "443"

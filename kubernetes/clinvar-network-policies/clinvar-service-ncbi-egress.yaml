@@ -1,20 +1,56 @@
-# EXCLUDED from argocd/apps/clinvar-network-policies.yaml's sync
-# (spec.source.directory.exclude) as of 2026-08-10: needs the rules.dns
-# L7 DNS proxy path, which a real, live incident proved broken in this
-# cluster (see clinvar-service.yaml and this item's backlog entry).
-# Kept in git, not deleted -- re-include the moment the upstream Cilium
-# bug is actually fixed, don't rewrite this file from scratch.
-#
 # backlog #50: clinvar-service's one permitted public egress -- NCBI,
 # the real source of the ClinVar VCF release (docs/data-sources.md,
 # services/clinvar-service/README.md's real CLINVAR_SOURCE_VCF_URL/
-# CLINVAR_SOURCE_TBI_URL). A separate CiliumNetworkPolicy object,
-# deliberately: `toFQDNs` cannot occur in the same policy as other
-# `To*` egress rules (confirmed live, `kubectl explain
-# ciliumnetworkpolicy.spec.egress.toFQDNs`), so this can't be folded
-# into clinvar-service.yaml's own egress list. Both policies select the
-# same pod; Cilium unions all matching policies' rules for that
-# endpoint, so this is additive, not a replacement.
+# CLINVAR_SOURCE_TBI_URL).
+#
+# REWRITTEN 2026-08-10 from `toFQDNs` to `toCIDR`: the original
+# `toFQDNs` form needs a `rules.dns` L7 selector to populate its IP
+# allow-list, and a real, twice-reproduced live incident proved the DNS
+# proxy L7 redirect that selector triggers drops ALL locally-originated
+# pod DNS under this cluster's real config (routingMode: tunnel/vxlan +
+# kubeProxyReplacement/socket-LB; matches open upstream
+# cilium/cilium#46284 -- full account in backlog #50's entry).
+# `toCIDR` is a pure L3 IP match evaluated in the datapath: it never
+# touches DNS resolution or the DNS proxy, so it cannot hit that bug.
+#
+# The honest tradeoff: these CIDRs can rot. `toFQDNs` would have
+# tracked DNS changes automatically (had it worked); an IP allowlist
+# breaks silently the day NCBI serves ftp.ncbi.nlm.nih.gov from an
+# address outside these ranges, without this file being touched. The
+# ranges below are chosen wide enough to make that unlikely, and every
+# one is NIH-owned space, so "wide" here does not mean "open to
+# arbitrary third parties":
+#   - 130.14.0.0/16 -- ARIN RDAP (rdap.arin.net/registry/ip/130.14.250.7,
+#     checked 2026-08-10): registered to the National Library of
+#     Medicine (NLM-ETHER), NCBI's parent. Also the first entry in
+#     NCBI's own published firewall allowlist
+#     (github.com/ncbi/sra-tools/wiki/Firewall-and-Routing-Information,
+#     checked 2026-08-10), which itself warns "these addresses are
+#     subject to change".
+#   - 165.112.7.0/24 + 165.112.9.0/24 -- the other two subnets in that
+#     same NCBI-published allowlist; parent 165.112.0.0/16 is NIHNET
+#     per ARIN RDAP. NCBI has served download hosts from 165.112.9.x
+#     before (their own doc lists ftp-trace/sra-download IPs there), so
+#     included to survive a failover this file would otherwise miss.
+# Resolved reality at time of writing: ftp.ncbi.nlm.nih.gov is a CNAME
+# to ftp.wip.ncbi.nlm.nih.gov, rotating across 130.14.250.7-31
+# (checked 2026-08-10 against the local resolver plus 8.8.8.8, 1.1.1.1
+# and 9.9.9.9 -- all answers inside 130.14.250.0/24, i.e. inside
+# 130.14.0.0/16).
+# If ingestion ever fails with a connect timeout to NCBI, re-check with
+# `dig +short ftp.ncbi.nlm.nih.gov` before suspecting anything else.
+#
+# Revisit as `toFQDNs` if/when the upstream DNS-proxy bug is actually
+# fixed -- that form is strictly better maintenance-wise; this file is
+# the workaround, not the preferred end state.
+#
+# A separate CiliumNetworkPolicy object, deliberately: originally
+# because `toFQDNs` cannot share a policy with other `To*` egress rules
+# (a constraint `toCIDR` does not have), kept separate anyway so the
+# cluster's only public-egress allows stay reviewable and removable on
+# their own. Both policies select the same pod; Cilium unions all
+# matching policies' rules for that endpoint, so this is additive, not
+# a replacement.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -25,8 +61,10 @@ spec:
     matchLabels:
       app: clinvar-service
   egress:
-    - toFQDNs:
-        - matchName: "ftp.ncbi.nlm.nih.gov"
+    - toCIDR:
+        - 130.14.0.0/16
+        - 165.112.7.0/24
+        - 165.112.9.0/24
       toPorts:
         - ports:
             - port: "443"

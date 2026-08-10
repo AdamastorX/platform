@@ -1,13 +1,15 @@
 # backlog #50: prometheus namespace's real NetworkPolicies -- fifth
 # real batch, and by far the largest fan-out (Prometheus talks to
-# nearly the whole cluster). Two of this namespace's four real pods
-# (prometheus-server, kube-state-metrics) get a policy; node-exporter
-# (hostNetwork, no distinct Cilium endpoint) and alertmanager (a real,
-# live ntfy webhook egress blocked on the same DNS-proxy bug as NCBI/
-# GitHub) deliberately do not -- see kube-state-metrics.yaml's own
+# nearly the whole cluster). Three of this namespace's four real pods
+# now get a policy: prometheus-server and kube-state-metrics first,
+# then alertmanager (alertmanager.yaml, egress-only) once its live
+# ntfy webhook egress -- formerly blocked on the same DNS-proxy bug as
+# NCBI/GitHub -- could be written as pure-L3 toCIDR instead of
+# toFQDNs. node-exporter (hostNetwork, no distinct Cilium endpoint)
+# deliberately still has none -- see kube-state-metrics.yaml's own
 # header for the real reasoning.
 #
-# No rules.dns/toFQDNs anywhere in either policy, same discipline as
+# No rules.dns/toFQDNs anywhere in any policy, same discipline as
 # every sibling batch since platform#156's fix.
 #
 # Deliberately NOT auto-synced on first apply, same reasoning as the

@@ -1,0 +1,79 @@
+# backlog #50: alertmanager's egress -- the last of the three real
+# public-egress flows (NCBI, GitHub, this) that were blocked on the
+# DNS-proxy bug, now expressed as `toCIDR` instead of `toFQDNs` (same
+# reasoning as clinvar-service-ncbi-egress.yaml /
+# api-pyroscope-agent-egress.yaml: `toCIDR` is a pure L3 IP match that
+# never touches the broken `rules.dns` L7 DNS-proxy path).
+#
+# alertmanager previously had NO policy at all, deliberately (see the
+# earlier note in kube-state-metrics.yaml's header): its one real
+# egress is the live `ntfy` webhook this cluster's real alerting
+# depends on (`kubectl exec -n prometheus prometheus-alertmanager-0 --
+# cat /etc/alertmanager/alertmanager.yml`, re-checked 2026-08-10:
+# a single `ntfy` receiver whose url_file points at
+# https://ntfy.sh/<topic>), and breaking that would silently kill real
+# alerting -- too risky while the only mechanism available was the
+# broken DNS proxy.
+#
+# EGRESS-ONLY, deliberately: this policy has no `ingress` section, and
+# Cilium's default-deny is per-direction -- an egress-only policy
+# leaves ingress enforcement OFF for the endpoint. Verified live
+# against this exact cluster (2026-08-10, `cilium-dbg endpoint list -o
+# json`): alloy's endpoint, whose policy is also egress-only, reports
+# `policy-enabled: egress`, not `both`. So prometheus-server's alert
+# pushes to :9093 and kubelet's probes are untouched by this policy;
+# an ingress policy for alertmanager is a separate, later decision.
+# (Note: backlog #50's alloy entry claims an absent `ingress:` key is
+# default-deny-all-ingress -- the live endpoint state above says
+# otherwise; flagged in the PR rather than silently contradicted.)
+#
+# Where the CIDR comes from, honestly: ntfy.sh publishes no IP-range
+# guidance (checked docs.ntfy.sh install/config docs, 2026-08-10 --
+# nothing on static IPs for the hosted service). Resolved reality:
+# a single A record, 159.203.148.75, identical across the local
+# resolver, 8.8.8.8, 1.1.1.1 and 9.9.9.9 (2026-08-10, TTL ~2500s at
+# check). That address sits in DigitalOcean's 159.203.0.0/16 (ARIN
+# RDAP) -- shared multi-tenant cloud space, so the mask is deliberately
+# NOT widened the way NCBI's NIH-owned /16 safely could be: anything
+# wider than /32 here would allow egress to arbitrary unrelated
+# DigitalOcean droplets.
+#
+# The real tradeoff, stated plainly: if ntfy.sh ever moves IP, alert
+# DELIVERY breaks silently until this file is updated -- the exact
+# regression the earlier no-policy decision avoided, now traded for
+# actual egress enforcement. If alerts stop arriving, check
+# `dig +short ntfy.sh` against this CIDR first, and remember
+# alertmanager retries failed webhook notifications, so a fast fix
+# loses little. Revisit as `toFQDNs` if/when the upstream Cilium
+# DNS-proxy bug (cilium/cilium#46284, backlog #50) is actually fixed.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: alertmanager
+  namespace: prometheus
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    # Plain L3/L4 port-53 allow, no rules.dns, same as every sibling
+    # policy since platform#156.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # alertmanager -> ntfy.sh (the real, live webhook receiver -- see
+    # header for the source and the /32's honest caveat).
+    - toCIDR:
+        - 159.203.148.75/32
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

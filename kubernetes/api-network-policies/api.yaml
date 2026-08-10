@@ -54,10 +54,10 @@ spec:
     # dnsProxy.enableTransparentMode -- confirmed live, twice. Plain
     # L3/L4 port-53 allow (below) doesn't trigger the proxy redirect and
     # is unaffected -- normal Service DNS works fine without rules.dns.
-    # toFQDNs (the pyroscope-agent-fetch GitHub download) stays blocked
-    # until the upstream bug is fixed; see api-pyroscope-agent-egress.yaml,
-    # deliberately excluded from this Application's sync
-    # (argocd/apps/api-network-policies.yaml).
+    # The pyroscope-agent-fetch GitHub download, formerly toFQDNs and
+    # blocked on that same bug, is now a pure-L3 toCIDR rule (no DNS
+    # proxy involved) in api-pyroscope-agent-egress.yaml, re-included
+    # in this Application's sync (argocd/apps/api-network-policies.yaml).
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: kube-system
