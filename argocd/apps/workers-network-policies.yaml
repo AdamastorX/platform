@@ -1,0 +1,30 @@
+# backlog #50: workers namespace's real NetworkPolicies -- third real
+# batch, same discipline as clinvar-network-policies.yaml/
+# api-network-policies.yaml (real observed Hubble flows cross-checked
+# against workers' own real source, services/workers/src/main/
+# resources/application.yml + platform/kubernetes/workers/
+# deployment.yaml). No rules.dns/toFQDNs anywhere (workers has no
+# public egress), so this batch was never exposed to the real, live
+# DNS-proxy bug the other two batches hit and later fixed (platform#156).
+#
+# Deliberately NOT auto-synced on first apply, same reasoning as
+# clinvar-network-policies.yaml/api-network-policies.yaml/cilium.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workers-network-policies
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/workers-network-policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: workers
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

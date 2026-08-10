@@ -1,0 +1,96 @@
+# backlog #50: workers' own default-deny + explicit allows. Real,
+# derived from a live 5-minute `hubble observe --namespace workers`
+# capture (2026-08-10) against the rebuilt cluster, cross-checked
+# against workers' own real source (services/workers/src/main/
+# resources/application.yml) and platform/kubernetes/workers/
+# deployment.yaml -- no gap found: workers has no Postgres/Redis/
+# Pyroscope, unlike api/clinvar-service, and the deployment.yaml itself
+# states why (ADR 0009/0011: workers has no business HTTP API, no
+# Kubernetes Service, no other real dependency this policy would need
+# to guess at).
+#
+# Applying ANY CiliumNetworkPolicy that selects a pod switches that pod
+# from Cilium's default-allow into default-deny for exactly this
+# endpoint -- every real flow this pod needs has to be named here, in
+# one shot, not added incrementally while traffic is already cut.
+#
+# No rules.dns anywhere in this file, deliberately (backlog #50's real,
+# live DNS-proxy incident, see the item's own backlog entry and
+# clinvar-service.yaml/api.yaml in the sibling directories) -- workers
+# has no toFQDNs need at all (no public egress), so this was never at
+# risk, but the plain L3/L4-only DNS rule below matches the same
+# now-established safe pattern anyway.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: workers
+  namespace: workers
+spec:
+  endpointSelector:
+    matchLabels:
+      app: workers
+  ingress:
+    # kubelet's own liveness/readiness probes (deployment.yaml's
+    # /actuator/health/liveness and /readiness on the `http` container
+    # port, 8080) -- workers has no Kubernetes Service (ADR 0009/0011),
+    # so this is the kubelet process on the node itself, not a pod.
+    # Real, observed: 10.42.0.158 (host) -> workers/workers-...:8080.
+    # Cilium's `host` entity is the correct selector for kubelet traffic
+    # on a single-node cluster, not a namespace/label-based
+    # fromEndpoints (there is no "kubelet pod" to match).
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Prometheus scrapes workers directly via Kubernetes pod-role
+    # service discovery (argocd/apps/prometheus.yaml's `workers` job --
+    # no stable Service to target, same reason as the kubelet probe
+    # above). Real, observed: prometheus/prometheus ->
+    # workers/workers-...:8080.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: prometheus
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    # Real, observed: workers/workers -> kube-system/coredns:53.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # workers -> Kafka (backlog #50's own named minimum: api/workers ->
+    # Kafka -- this is the workers half). Real, observed: workers/workers
+    # -> kafka/kafka-controller-0:9092. Matches application.yml's
+    # spring.kafka.bootstrap-servers (consumes work-items, produces to
+    # work-items.DLT via KafkaErrorHandlingConfig).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kafka
+            app.kubernetes.io/name: kafka
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # workers -> OTel Collector (traces). Real, observed: workers/workers
+    # -> otel/otel-collector:4318. Matches application.yml's
+    # management.opentelemetry.tracing.export.otlp.endpoint.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: otel
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "4318"
+              protocol: TCP
