@@ -1,0 +1,76 @@
+# backlog #50: kube-state-metrics' own default-deny + explicit allows.
+#
+# node-exporter and alertmanager, the other two pods in this
+# namespace, deliberately get NO CiliumNetworkPolicy of their own:
+#   - prometheus-prometheus-node-exporter runs `hostNetwork: true` and
+#     shares Cilium's `reserved:host` identity with no distinct Cilium
+#     endpoint of its own (confirmed live, `cilium-dbg endpoint list`)
+#     -- a CiliumNetworkPolicy selecting it by pod label would not
+#     actually be enforced, a real Cilium constraint, not an oversight.
+#   - prometheus-alertmanager has a real, live, already-configured
+#     public egress dependency this cluster's real alerting depends on
+#     (the `ntfy` webhook receiver, `kubectl exec ... alertmanager-0
+#     -- cat /etc/alertmanager/alertmanager.yml`, confirmed live) --
+#     the same `toFQDNs`-blocked class of risk as the NCBI/GitHub gap
+#     this item's backlog entry already records, except unlike NCBI's
+#     periodic non-critical job, breaking this would silently kill
+#     real alerting. Left fully unrestricted rather than accept that
+#     regression, until the upstream Cilium DNS-proxy bug is actually
+#     fixed and a `toFQDNs` rule for ntfy.sh can be added safely.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kube-state-metrics
+  namespace: prometheus
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+  ingress:
+    # kubelet's own probes -- livenessProbe targets the "http" port
+    # (8080), readinessProbe targets the "metrics" port (8081),
+    # confirmed live against the real pod spec.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "8081"
+              protocol: TCP
+    # prometheus-server scrapes both real ports (the chart-default
+    # "kubernetes-service-endpoints" job).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: prometheus
+            app.kubernetes.io/name: prometheus
+            app.kubernetes.io/component: server
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "8081"
+              protocol: TCP
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # kube-state-metrics' whole job is watching the Kubernetes API to
+    # turn cluster object state into metrics -- this single-node k3s
+    # cluster serves the API off the node's own IP, no separate pod/LB
+    # to target (same reasoning as every other host-bound rule in this
+    # item's sibling policies).
+    - toEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
