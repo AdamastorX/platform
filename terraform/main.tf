@@ -22,6 +22,22 @@ resource "null_resource" "k3s" {
     private_key = file(self.triggers.ssh_private_key_path)
   }
 
+  # backlog #49's own AC: "the kernel version the eBPF dataplane requires is
+  # recorded as a real Terraform-level constraint", found undone during
+  # #49's own real rebuild review (2026-08-10) -- Cilium's eBPF dataplane
+  # (kubeProxyReplacement especially, argocd/apps/cilium.yaml) needs a
+  # modern kernel; Cilium's own docs put the real floor at 5.4 for basic
+  # eBPF service handling. A real, enforced precondition here, not just a
+  # comment: `terraform apply` fails loudly on too-old a kernel rather
+  # than succeeding and leaving Cilium to fail mysteriously afterward.
+  # Confirmed live on this real host: 6.17.0-41-generic, comfortably over
+  # the floor.
+  provisioner "remote-exec" {
+    inline = [
+      "KVER=$(uname -r | cut -d. -f1,2); KMAJ=$(echo $KVER | cut -d. -f1); KMIN=$(echo $KVER | cut -d. -f2); if [ \"$KMAJ\" -lt 5 ] || { [ \"$KMAJ\" -eq 5 ] && [ \"$KMIN\" -lt 4 ]; }; then echo \"kernel $(uname -r) is below Cilium's real eBPF floor (5.4) -- see backlog #49\" >&2; exit 1; fi; echo \"kernel $(uname -r) OK for Cilium eBPF (>= 5.4)\"",
+    ]
+  }
+
   provisioner "remote-exec" {
     inline = [
       "sudo ${var.remote_install_script_path}",
