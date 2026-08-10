@@ -47,6 +47,14 @@ spec:
     # the one flow this project's own real architecture makes certain
     # rather than assumed -- every service here resolves Service DNS
     # names for everything it calls).
+    #
+    # rules.dns (review finding): a toFQDNs rule (clinvar-service-ncbi-
+    # egress.yaml) only works if Cilium's DNS proxy actually sees this
+    # pod's DNS lookups -- that needs an explicit L7 DNS rule on the
+    # port-53 egress, not just an L3/L4 port-53 allow. Without this,
+    # toFQDNs silently matches nothing and NCBI stays denied even though
+    # the policy "looks" like it allows it -- caught by review before
+    # ever reaching the real ingestion job that would have hit it.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: kube-system
@@ -56,6 +64,26 @@ spec:
             - port: "53"
               protocol: UDP
             - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # clinvar-service -> Kafka (produces to clinvar.ingestion.completed,
+    # watchlist-service's own real trigger topic, ADR 0026/backlog #53).
+    # CRITICAL review finding: missing from the original version of this
+    # policy entirely -- clinvar-service holds a real, live, established
+    # connection to kafka-controller-0:9092 (confirmed against the pod's
+    # own live socket table, not just Hubble's short flow buffer, which
+    # can miss an already-established long-lived connection). Applying
+    # the policy without this would have cut real production traffic on
+    # apply -- caught by review before that happened, not after.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kafka
+            app.kubernetes.io/name: kafka
+      toPorts:
+        - ports:
+            - port: "9092"
               protocol: TCP
     # clinvar-service -> its own PostgreSQL. Real, observed:
     # clinvar/clinvar-service -> clinvar/clinvar-postgresql-0:5432.
@@ -89,10 +117,18 @@ spec:
             - port: "4040"
               protocol: TCP
     # clinvar-service -> NCBI (the only permitted public egress in the
-    # cluster, backlog #50's own AC). NOT covered here: CiliumNetworkPolicy
-    # forbids mixing toFQDNs with other To* rules in the same policy --
-    # see clinvar-service-ncbi-egress.yaml, a separate policy selecting
-    # the same pod, for that one rule.
+    # cluster, backlog #50's own AC). NOT covered here, in a separate
+    # policy instead (clinvar-service-ncbi-egress.yaml, same pod
+    # selector, rules union across policies) -- correction (review
+    # finding): the real Cilium constraint is per egress-rule-entry, not
+    # per policy (a toFQDNs entry can't share one egress list *item*
+    # with toEndpoints/toCIDR, but a policy's egress list can hold a
+    # toFQDNs entry alongside other entries). Kept as a separate policy
+    # anyway for a real, independent reason: it's a different kind of
+    # rule (public internet egress vs. in-cluster east-west), worth
+    # reviewing and removing on its own if this project's NCBI source
+    # ever changes, without touching the rest of this pod's real
+    # in-cluster traffic.
     #
     # Real, honest gap between observed and documented (backlog #50's own
     # AC asks for exactly this comparison to be recorded): the real
