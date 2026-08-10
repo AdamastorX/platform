@@ -186,9 +186,13 @@ spec:
     # Cilium is stable and trusted to self-heal (a bad selfHeal on the CNI
     # is the one thing that can wall off the API server on this single node).
     syncOptions:
-      # Cilium ships large CRDs (ciliumnetworkpolicies etc.) that approach
-      # the 256KB client-side last-applied annotation limit, and SSA lets
-      # ArgoCD cleanly adopt the resources the manual `helm install`
-      # already created without ownership conflicts. Same reasoning as
-      # traefik.yaml's ServerSideApply.
+      # Real reason (checked via a real `helm template` render, not
+      # assumed): this chart ships no CRD manifests at all -- Cilium
+      # registers its CRDs at runtime via the operator, so the 256KB
+      # last-applied-annotation concern that justifies SSA elsewhere in
+      # this repo (traefik.yaml) doesn't actually apply here. What SSA
+      # is really for in this file: letting ArgoCD cleanly adopt the
+      # DaemonSet/Deployments the manual `helm install` already created,
+      # without a client-side last-applied-annotation ownership fight
+      # over resources ArgoCD didn't itself create first.
       - ServerSideApply=true
