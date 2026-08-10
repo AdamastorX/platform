@@ -1,0 +1,33 @@
+# backlog #50: api's own Redis default-deny + explicit allows. Real,
+# observed: api/api -> api/redis-master-0:6379. No backup job, no
+# other real consumer -- api's own ephemeral cache (work-item/variant
+# lookup caching, application.yml's redis.host).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: redis
+  namespace: api
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app: api
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
