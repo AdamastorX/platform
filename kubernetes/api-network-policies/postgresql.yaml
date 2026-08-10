@@ -1,0 +1,44 @@
+# backlog #50: api's own PostgreSQL default-deny + explicit allows.
+# Real, observed: api/api -> api/postgresql-0:5432. The nightly backup
+# CronJob (postgresql-backup, kubernetes/postgresql-backup/cronjob.yaml,
+# real label app: postgresql-backup) did not fire during the 10-minute
+# capture window (real schedule: 03:00 daily) but is real, documented,
+# same-namespace traffic -- named explicitly, same discipline as
+# clinvar-network-policies/clinvar-postgresql.yaml.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: postgresql
+  namespace: api
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app: api
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app: postgresql-backup
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

@@ -1,0 +1,36 @@
+# backlog #50: api's one real public egress -- the pyroscope-agent-
+# fetch init container (kubernetes/api/rollout.yaml) downloads the
+# Pyroscope Java agent jar from a real GitHub release on every pod
+# (re)creation, not baked into the image. A separate policy, same
+# reason as clinvar-service-ncbi-egress.yaml: a different kind of rule
+# (public internet vs. in-cluster east-west), reviewed and removable on
+# its own if/when this dependency is removed (the real, better fix --
+# baking the jar into the image instead of fetching it at every pod
+# start -- is out of scope for this platform-only PR, a services-repo
+# change; tracked separately, not silently deferred).
+#
+# github.com itself 302-redirects release-asset downloads to a real
+# release-assets.githubusercontent.com CDN host (confirmed live,
+# `curl -sIL`, 2026-08-10) -- GitHub's own redirect target subdomain
+# has changed before (older documented cases used a different
+# *.githubusercontent.com host), so this matches the whole CDN domain
+# via a wildcard rather than pinning today's exact subdomain, to avoid
+# this policy silently breaking the next time GitHub reshuffles its
+# release-asset CDN without this file being touched.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: api-pyroscope-agent-egress
+  namespace: api
+spec:
+  endpointSelector:
+    matchLabels:
+      app: api
+  egress:
+    - toFQDNs:
+        - matchName: "github.com"
+        - matchPattern: "*.githubusercontent.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

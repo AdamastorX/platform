@@ -1,0 +1,27 @@
+# backlog #50: api namespace's real NetworkPolicies -- second real
+# batch, same discipline as clinvar-network-policies.yaml (real
+# observed Hubble flows cross-checked against api's own real source,
+# services/api/src/main/resources/application.yml -- every observed
+# egress matched a real config value 1:1 this time, no gap found).
+#
+# Deliberately NOT auto-synced on first apply, same reasoning as
+# clinvar-network-policies.yaml/cilium.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api-network-policies
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/api-network-policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: api
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

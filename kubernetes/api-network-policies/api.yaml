@@ -1,0 +1,135 @@
+# backlog #50: api's own default-deny + explicit allows. Real, derived
+# from a live 10-minute `hubble observe -n api` capture (2026-08-10)
+# against the rebuilt cluster, cross-checked against api's own real
+# source (services/api/src/main/resources/application.yml) --
+# unlike clinvar-service's first pass, every observed egress here
+# matches a real config value 1:1, no gap found this time.
+#
+# Applying ANY CiliumNetworkPolicy that selects a pod switches that pod
+# from Cilium's default-allow into default-deny for exactly this
+# endpoint -- every real flow this pod needs has to be named here, in
+# one shot, not added incrementally while traffic is already cut.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: api
+  namespace: api
+spec:
+  endpointSelector:
+    matchLabels:
+      app: api
+  ingress:
+    # Traefik -> api (the real public Ingress path, ADR 0021/0027).
+    # Real, observed: traefik/traefik -> api/api:8080.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: traefik
+            app.kubernetes.io/name: traefik
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Prometheus scrapes api directly (argocd/apps/prometheus.yaml's api
+    # static target). Real, observed: prometheus/prometheus ->
+    # api/api:8080.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: prometheus
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    # Real, observed: api/api -> kube-system/kube-dns:53.
+    #
+    # rules.dns (review finding, same class as clinvar's): api's own
+    # Rollout runs a real public-internet egress this namespace's
+    # egress list originally missed entirely -- the pyroscope-agent-
+    # fetch init container (kubernetes/api/rollout.yaml) `curl`s
+    # https://github.com/... on every pod (re)creation, not just
+    # steady-state traffic a live Hubble capture can see. Missed by
+    # the first pass because a running-pod capture can't observe an
+    # init container's one-shot startup fetch, and because the
+    # cross-check was against application.yml only, not the Rollout's
+    # own initContainers -- caught before this ever reached
+    # production, not after the next canary deploy or reboot bricked
+    # every future api pod's Init:Error. This DNS rule needs the L7
+    # proxy enabled (same reason as clinvar-service-ncbi-egress.yaml)
+    # for the toFQDNs rules below to actually resolve anything.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # api -> clinvar-service (backlog #50's own named minimum). Real,
+    # observed: api/api -> clinvar/clinvar-service:8000. Matches
+    # application.yml's clinvar.base-url.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: clinvar
+            app: clinvar-service
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+    # api -> Kafka (backlog #50's own named minimum: api/workers -> Kafka
+    # -- this is the api half). Real, observed: api/api -> kafka/
+    # kafka:9092. Matches application.yml's kafka.bootstrap-servers.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kafka
+            app.kubernetes.io/name: kafka
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # api -> its own PostgreSQL (backlog #50's own named minimum). Real,
+    # observed: api/api -> api/postgresql-0:5432.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app.kubernetes.io/name: postgresql
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # api -> its own Redis (backlog #50's own named minimum). Real,
+    # observed: api/api -> api/redis-master-0:6379.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app.kubernetes.io/name: redis
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # api -> OTel Collector (traces). Real, observed: api/api ->
+    # otel/opentelemetry-collector:4318.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: otel
+            app.kubernetes.io/name: opentelemetry-collector
+      toPorts:
+        - ports:
+            - port: "4318"
+              protocol: TCP
+    # api -> Pyroscope (continuous profiling push, backlog #57). Real,
+    # observed: api/api -> pyroscope/pyroscope:4040.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: pyroscope
+            app.kubernetes.io/name: pyroscope
+      toPorts:
+        - ports:
+            - port: "4040"
+              protocol: TCP
