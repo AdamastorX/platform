@@ -15,17 +15,23 @@
 # alerting -- too risky while the only mechanism available was the
 # broken DNS proxy.
 #
-# EGRESS-ONLY, deliberately: this policy has no `ingress` section, and
-# Cilium's default-deny is per-direction -- an egress-only policy
-# leaves ingress enforcement OFF for the endpoint. Verified live
-# against this exact cluster (2026-08-10, `cilium-dbg endpoint list -o
-# json`): alloy's endpoint, whose policy is also egress-only, reports
-# `policy-enabled: egress`, not `both`. So prometheus-server's alert
-# pushes to :9093 and kubelet's probes are untouched by this policy;
-# an ingress policy for alertmanager is a separate, later decision.
-# (Note: backlog #50's alloy entry claims an absent `ingress:` key is
-# default-deny-all-ingress -- the live endpoint state above says
-# otherwise; flagged in the PR rather than silently contradicted.)
+# INGRESS ADDED (2026-08-10, platform#161's own finding applied here
+# too): this policy originally shipped egress-only, on the same wrong
+# assumption alloy's original policy made -- Cilium's default-deny is
+# per-direction, and an egress-only policy leaves ingress enforcement
+# OFF for the endpoint entirely (verified live at the time,
+# `cilium-dbg endpoint list -o json`: `policy-enabled: egress`, not
+# `both`). Unlike alloy, alertmanager has real callers, so the fix
+# here is real ingress allow rules, not alloy's unmatchable-selector
+# placeholder -- confirmed live via `hubble observe --pod
+# prometheus/prometheus-alertmanager-0`: kubelet's own probes (both
+# livenessProbe/readinessProbe target the `http`/9093 port) and
+# prometheus-server's real alert pushes to :9093. Traefik's own real
+# Ingress (`alertmanager.local.adamastorx.test`) wasn't captured live
+# in this window (no one browsing the dashboard at the time) but is
+# certain from the real Ingress object, same "certain rather than
+# assumed" reasoning as prometheus-server.yaml's own Traefik/Grafana
+# ingress rules.
 #
 # Where the CIDR comes from, honestly: ntfy.sh publishes no IP-range
 # guidance (checked docs.ntfy.sh install/config docs, 2026-08-10 --
@@ -55,6 +61,36 @@ spec:
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: alertmanager
+  ingress:
+    # kubelet's own probes -- both livenessProbe and readinessProbe
+    # target the "http" container port (9093), confirmed live against
+    # the real pod spec.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "9093"
+              protocol: TCP
+    # prometheus-server -> alertmanager (real, live alert pushes).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: prometheus
+            app.kubernetes.io/name: prometheus
+            app.kubernetes.io/component: server
+      toPorts:
+        - ports:
+            - port: "9093"
+              protocol: TCP
+    # Traefik -> alertmanager (the real Ingress path,
+    # alertmanager.local.adamastorx.test).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: traefik
+            app.kubernetes.io/name: traefik
+      toPorts:
+        - ports:
+            - port: "9093"
+              protocol: TCP
   egress:
     # DNS, explicitly, everywhere -- backlog #50's own named footgun.
     # Plain L3/L4 port-53 allow, no rules.dns, same as every sibling
