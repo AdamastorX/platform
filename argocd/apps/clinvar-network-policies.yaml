@@ -1,0 +1,33 @@
+# backlog #50: clinvar namespace's real NetworkPolicies -- the first
+# real batch of #50's larger scope, not the whole item. See
+# kubernetes/clinvar-network-policies/ for the manifests and their real
+# derivation (observed Hubble flows + the one honest observed-vs-
+# documented gap, clinvar-service's NCBI egress).
+#
+# Deliberately NOT auto-synced on first apply: a CiliumNetworkPolicy
+# that gets even one real flow wrong cuts that traffic the moment it
+# lands, with selfHeal reapplying it instantly if hand-corrected live --
+# same manual-first-apply precedent as cilium.yaml, for the same real
+# reason (a policy mistake here is reversible with one `kubectl delete`,
+# but selfHeal fighting a live diagnosis while a real service is broken
+# is not a moment to also be fighting the GitOps engine, learned the
+# hard way during #49's own rebuild).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clinvar-network-policies
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/clinvar-network-policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clinvar
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
