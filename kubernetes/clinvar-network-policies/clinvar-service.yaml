@@ -48,13 +48,19 @@ spec:
     # rather than assumed -- every service here resolves Service DNS
     # names for everything it calls).
     #
-    # rules.dns (review finding): a toFQDNs rule (clinvar-service-ncbi-
-    # egress.yaml) only works if Cilium's DNS proxy actually sees this
-    # pod's DNS lookups -- that needs an explicit L7 DNS rule on the
-    # port-53 egress, not just an L3/L4 port-53 allow. Without this,
-    # toFQDNs silently matches nothing and NCBI stays denied even though
-    # the policy "looks" like it allows it -- caught by review before
-    # ever reaching the real ingestion job that would have hit it.
+    # rules.dns REMOVED (2026-08-10, real live incident -- see this
+    # item's backlog entry): an L7 DNS visibility rule here is what
+    # toFQDNs needs to populate its IP allow-list, but a real, open
+    # upstream Cilium bug (cilium/cilium#46284-adjacent) makes the DNS
+    # proxy L7 redirect itself drop locally-originated pod DNS under
+    # this cluster's real tunnel+socket-LB config -- confirmed live,
+    # twice, independent of the dnsProxy.enableTransparentMode setting.
+    # Plain L3/L4 port-53 allow (below) does not trigger the proxy
+    # redirect at all and is unaffected -- normal Service/in-cluster DNS
+    # works fine without rules.dns. toFQDNs (NCBI) stays genuinely
+    # blocked until the upstream bug is fixed; see
+    # clinvar-service-ncbi-egress.yaml, deliberately excluded from this
+    # Application's sync (argocd/apps/clinvar-network-policies.yaml).
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: kube-system
@@ -65,9 +71,6 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-          rules:
-            dns:
-              - matchPattern: "*"
     # clinvar-service -> Kafka (produces to clinvar.ingestion.completed,
     # watchlist-service's own real trigger topic, ADR 0026/backlog #53).
     # CRITICAL review finding: missing from the original version of this
@@ -117,30 +120,13 @@ spec:
             - port: "4040"
               protocol: TCP
     # clinvar-service -> NCBI (the only permitted public egress in the
-    # cluster, backlog #50's own AC). NOT covered here, in a separate
-    # policy instead (clinvar-service-ncbi-egress.yaml, same pod
-    # selector, rules union across policies) -- correction (review
-    # finding): the real Cilium constraint is per egress-rule-entry, not
-    # per policy (a toFQDNs entry can't share one egress list *item*
-    # with toEndpoints/toCIDR, but a policy's egress list can hold a
-    # toFQDNs entry alongside other entries). Kept as a separate policy
-    # anyway for a real, independent reason: it's a different kind of
-    # rule (public internet egress vs. in-cluster east-west), worth
-    # reviewing and removing on its own if this project's NCBI source
-    # ever changes, without touching the rest of this pod's real
-    # in-cluster traffic.
-    #
-    # Real, honest gap between observed and documented (backlog #50's own
-    # AC asks for exactly this comparison to be recorded): the real
-    # ClinVar ingestion job (services/clinvar-service, config.py,
+    # cluster, backlog #50's own AC): written (clinvar-service-ncbi-
+    # egress.yaml) but NOT applied -- excluded from this Application's
+    # sync (argocd/apps/clinvar-network-policies.yaml) since it needs
+    # the still-broken rules.dns L7 DNS proxy path (see above). A real,
+    # stated, temporarily-unenforceable gap, not a silent omission: the
+    # real ClinVar ingestion job (services/clinvar-service, config.py,
     # CLINVAR_SOURCE_VCF_URL=https://ftp.ncbi.nlm.nih.gov/pub/clinvar/
-    # vcf_GRCh38/clinvar.vcf.gz) did NOT fire during this 5-minute Hubble
-    # capture window -- it's a periodic/triggered job, not constant
-    # traffic. This policy's NCBI allow is derived from the real,
-    # documented source URL (docs/data-sources.md, services/
-    # clinvar-service/README.md), not from a live-observed flow. The
-    # real live-observed verification for this one specific rule is
-    # still open: trigger a real ClinVar ingestion run after this policy
-    # is live and confirm it succeeds (or, if NCBI blocks it, that the
-    # denied-flow itself shows up in Hubble exactly where this policy
-    # would cause it to).
+    # vcf_GRCh38/clinvar.vcf.gz) keeps its current unrestricted egress
+    # until the upstream Cilium bug is fixed and this rule can actually
+    # be turned on.

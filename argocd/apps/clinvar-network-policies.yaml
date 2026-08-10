@@ -25,6 +25,11 @@ spec:
     repoURL: https://github.com/AdamastorX/platform
     targetRevision: main
     path: kubernetes/clinvar-network-policies
+    directory:
+      # clinvar-service-ncbi-egress.yaml needs rules.dns (broken here,
+      # see backlog #50's entry and clinvar-service.yaml) -- kept in
+      # git, excluded from sync until the upstream Cilium bug is fixed.
+      exclude: "clinvar-service-ncbi-egress.yaml"
   destination:
     server: https://kubernetes.default.svc
     namespace: clinvar

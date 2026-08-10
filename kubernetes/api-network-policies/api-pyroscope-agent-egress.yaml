@@ -1,3 +1,10 @@
+# EXCLUDED from argocd/apps/api-network-policies.yaml's sync
+# (spec.source.directory.exclude) as of 2026-08-10: needs the rules.dns
+# L7 DNS proxy path, which a real, live incident proved broken in this
+# cluster (see api.yaml and this item's backlog entry). Kept in git,
+# not deleted -- re-include the moment the upstream Cilium bug is
+# actually fixed, don't rewrite this file from scratch.
+#
 # backlog #50: api's one real public egress -- the pyroscope-agent-
 # fetch init container (kubernetes/api/rollout.yaml) downloads the
 # Pyroscope Java agent jar from a real GitHub release on every pod

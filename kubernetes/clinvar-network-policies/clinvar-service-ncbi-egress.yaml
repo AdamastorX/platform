@@ -1,3 +1,10 @@
+# EXCLUDED from argocd/apps/clinvar-network-policies.yaml's sync
+# (spec.source.directory.exclude) as of 2026-08-10: needs the rules.dns
+# L7 DNS proxy path, which a real, live incident proved broken in this
+# cluster (see clinvar-service.yaml and this item's backlog entry).
+# Kept in git, not deleted -- re-include the moment the upstream Cilium
+# bug is actually fixed, don't rewrite this file from scratch.
+#
 # backlog #50: clinvar-service's one permitted public egress -- NCBI,
 # the real source of the ClinVar VCF release (docs/data-sources.md,
 # services/clinvar-service/README.md's real CLINVAR_SOURCE_VCF_URL/
