@@ -43,6 +43,21 @@ spec:
   egress:
     # DNS, explicitly, everywhere -- backlog #50's own named footgun.
     # Real, observed: api/api -> kube-system/kube-dns:53.
+    #
+    # rules.dns (review finding, same class as clinvar's): api's own
+    # Rollout runs a real public-internet egress this namespace's
+    # egress list originally missed entirely -- the pyroscope-agent-
+    # fetch init container (kubernetes/api/rollout.yaml) `curl`s
+    # https://github.com/... on every pod (re)creation, not just
+    # steady-state traffic a live Hubble capture can see. Missed by
+    # the first pass because a running-pod capture can't observe an
+    # init container's one-shot startup fetch, and because the
+    # cross-check was against application.yml only, not the Rollout's
+    # own initContainers -- caught before this ever reached
+    # production, not after the next canary deploy or reboot bricked
+    # every future api pod's Init:Error. This DNS rule needs the L7
+    # proxy enabled (same reason as clinvar-service-ncbi-egress.yaml)
+    # for the toFQDNs rules below to actually resolve anything.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: kube-system
@@ -53,6 +68,9 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
     # api -> clinvar-service (backlog #50's own named minimum). Real,
     # observed: api/api -> clinvar/clinvar-service:8000. Matches
     # application.yml's clinvar.base-url.
