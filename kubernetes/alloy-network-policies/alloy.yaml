@@ -1,0 +1,63 @@
+# backlog #50: alloy's own default-deny + explicit allows. Real,
+# derived from a live 5-minute `hubble observe --namespace alloy`
+# capture (2026-08-10) against the rebuilt cluster.
+#
+# No ingress rule: nothing calls alloy (a log-shipping DaemonSet, no
+# Kubernetes Service, no `prometheus.io/scrape` annotation -- confirmed
+# live, `kubectl get pod -n alloy alloy-nl2sx -o
+# jsonpath='{.metadata.annotations}'` -- so Prometheus's generic
+# annotation-driven jobs don't pick it up either). An empty `ingress:`
+# list means default-deny with zero allows, which is the real, correct
+# posture here, not an oversight.
+#
+# No rules.dns/toFQDNs (backlog #50's own real, live DNS-proxy
+# incident -- see this item's backlog entry and clinvar-service.yaml/
+# api.yaml in the sibling directories): alloy has no public egress, so
+# this was never at risk, but the plain L3/L4-only DNS rule below
+# matches the now-established safe pattern anyway.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: alloy
+  namespace: alloy
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: alloy
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    # alloy -> Loki (backlog #50's own named minimum: this is it). Real,
+    # observed: alloy/alloy -> loki/loki-0:3100 (log push, the Loki
+    # write path).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: loki
+            app.kubernetes.io/name: loki
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+    # alloy -> the Kubernetes API server, for its own `discovery.
+    # kubernetes` component (watches pod/node changes cluster-wide to
+    # know what to tail/scrape). Real, observed: alloy/alloy ->
+    # 192.168.1.10:6443, identity resolved as `(host)` -- this single-
+    # node k3s cluster serves the API directly off the node's own IP,
+    # no separate API-server pod/LB to target with a label selector
+    # (same `host` entity used, in reverse, by workers.yaml's kubelet
+    # ingress rule).
+    - toEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
