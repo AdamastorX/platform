@@ -1,0 +1,194 @@
+# Cilium eBPF CNI + Hubble (backlog #49, ADR 0023, rescoped by ADR 0040).
+# Cilium replaces flannel as this cluster's only CNI. This is the one
+# Application whose failure prevents ArgoCD itself from recovering the
+# cluster (no CNI => no pod can reach the API server => ArgoCD can't sync
+# anything): the rollback path is NOT GitOps but the rehearsed
+# flannel-restore runbook (platform/docs/runbooks/flannel-restore.md,
+# ADR 0023 Consequences / ADR 0040 §1), proven BEFORE the rebuild.
+#
+# Single node (lmpeixoto-thinkpad-t460s, 192.168.1.10), k3s
+# v1.36.2+k3s1 reinstalled with:
+#   --disable traefik --disable servicelb --flannel-backend=none
+#   --disable-network-policy --disable-kube-proxy
+# so Cilium owns the datapath end to end: CNI (flannel gone), the sole
+# NetworkPolicy engine (kube-router netpol gone -- ADR 0040/#50 build the
+# first policies on Cilium's engine, so a second one is deliberately NOT
+# reintroduced here), and kube-proxy's service load-balancing
+# (kubeProxyReplacement below -- not optional now that k3s ships none).
+#
+# NOT bootstrapped by ArgoCD: this Application is `helm install`ed by hand
+# onto the freshly rebuilt node first (ArgoCD can't run until pods can
+# network, and pods can't network until Cilium is up -- chicken/egg), then
+# adopted by ArgoCD afterward. Hence NO syncPolicy.automated on first
+# install -- same manual-adopt precedent as platform#92 (#79/#137). The
+# exact bootstrap `helm install` command lives in the flannel-restore /
+# rebuild runbook and mirrors these values one-for-one.
+#
+# Kept intentionally OUT of this file (each is its own concern, per the
+# repo's one-Application-per-file convention):
+#   - Hubble UI Ingress: a separate `cilium-hubble-ingress` Application on
+#     the established `kubernetes/<name>-ingress` + `*.local.adamastorx.test`
+#     + `adamastorx-ca` pattern (see alloy-ingress.yaml). Traefik still runs
+#     as its own ArgoCD Application (traefik.yaml) -- k3s's `--disable
+#     traefik` only stops k3s's bundled copy, not our GitOps-managed one --
+#     so the ingress path is unchanged; Cilium's own ingress/Gateway
+#     capability is deliberately NOT used (no need, no overreach).
+#   - Prometheus scrape of Hubble metrics: added via ADR 0014's
+#     no-Operator `extraScrapeConfigs` in prometheus.yaml. The metrics
+#     ENDPOINT is switched on here (hubble.metrics.enabled) so the port
+#     exists to scrape; the scrape job itself is prometheus.yaml's concern.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.cilium.io/
+    chart: cilium
+    # 1.20.0: current stable, and the version Cilium's own k3s install
+    # guide uses in its worked example. k8s 1.36 (k3s v1.36.2) is very new;
+    # 1.20 is the line that tracks the newest Kubernetes. Pinned exact, per
+    # this repo's convention (renovate.json bumps it).
+    targetRevision: 1.20.0
+    helm:
+      valuesObject:
+        # --- kube-proxy replacement -------------------------------------
+        # k3s was started with --disable-kube-proxy, so Cilium MUST provide
+        # service load-balancing in eBPF -- there is no kube-proxy fallback.
+        # Chart default is "false"; string value, matching the chart schema.
+        kubeProxyReplacement: "true"
+        # With kube-proxy gone, the in-cluster kubernetes.default.svc
+        # ClusterIP path that normally reaches the API server does not exist
+        # until Cilium itself is up -- a bootstrap chicken/egg. So the agent
+        # and operator must be told the real API server address directly.
+        # k3s serves the API on the node's own IP:6443 (no external LB).
+        # Rendered into KUBERNETES_SERVICE_HOST/PORT on every Cilium pod.
+        k8sServiceHost: "192.168.1.10"
+        k8sServicePort: "6443"
+        # --- IPAM -------------------------------------------------------
+        # flannel is gone, so Cilium owns pod IPAM. Match k3s's default pod
+        # CIDR (10.42.0.0/16) instead of Cilium's own 10.0.0.0/8 default, so
+        # nothing else on the host that assumes the k3s range is surprised.
+        # This is exactly what Cilium's k3s guide instructs.
+        ipam:
+          operator:
+            clusterPoolIPv4PodCIDRList:
+              - "10.42.0.0/16"
+        # --- Envoy L7 proxy ---------------------------------------------
+        # Chart default (1.16+) deploys a SEPARATE cilium-envoy DaemonSet,
+        # and it ships with `resources: {}` -- an unconstrained container,
+        # which backlog #114 forbids outright. On a single, CPU-tight node
+        # (2 physical cores / 4 HT, ADR 0040) a whole extra per-node
+        # DaemonSet is also not worth its footprint: L7 policy is not in
+        # scope until after #50's L3/L4 policies land. Disable the standalone
+        # DaemonSet -> Envoy runs embedded in the agent (the pre-1.16 model),
+        # one fewer pod and no unconstrained container. Revisit if/when L7
+        # policy or the Istio track (ADR 0024, currently blocked-on-hardware
+        # by ADR 0040 §4) actually needs a decoupled proxy lifecycle.
+        envoy:
+          enabled: false
+        # --- cilium-agent (DaemonSet, one pod this single node) ---------
+        # backlog #114: no component ships `resources: {}`. Agent is the
+        # heaviest Cilium component (ADR 0023 records ~200-300Mi/node); size
+        # the request at the top of that band with real burst headroom in
+        # the limit. This top-level `resources` maps to the agent container.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 800m
+            memory: 600Mi
+        # --- cilium-operator --------------------------------------------
+        operator:
+          # Chart default is 2 (HA across nodes). One node => the second
+          # replica is unschedulable and pointless. Force 1.
+          replicas: 1
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+        # --- Hubble flow observability (the whole point of #49) ---------
+        hubble:
+          enabled: true
+          # Expose the flow metrics endpoint so Prometheus can scrape it
+          # (ADR 0014 extraScrapeConfigs, wired in prometheus.yaml). A
+          # modest, low-cardinality set -- deliberately NOT http/L7 (needs
+          # the L7 proxy that's out of scope until #50) and NOT the
+          # serviceMonitor (this cluster runs Prometheus without the
+          # Operator/CRDs, ADR 0014).
+          metrics:
+            enabled:
+              - dns
+              - drop
+              - tcp
+              - flow
+              - port-distribution
+              - icmp
+          relay:
+            # Aggregates per-node flows into the single API that Hubble UI
+            # and the `hubble` CLI consume. Required for the UI to show
+            # anything. replicas defaults to 1 already -- fine on one node.
+            enabled: true
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                cpu: 150m
+                memory: 128Mi
+          # Hubble UI -- the flow map itself, the #49 deliverable. Two
+          # containers (frontend nginx + backend), each gets explicit
+          # resources (#114). Exposed via the separate ingress Application
+          # noted in the header, NOT this chart's own ingress.
+          ui:
+            enabled: true
+            backend:
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+            frontend:
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 50m
+                  memory: 64Mi
+        # Total real requests across every Cilium pod above:
+        #   CPU    100+25+25+10+10 = 170m
+        #   memory 256+64+64+32+32 = 448Mi (~0.44Gi)
+        # Under the 400m/1Gi ceiling and inside backlog #49's measured
+        # ~200m/~0.7Gi budget (headroom reclaimed by #120, platform#142).
+        # Re-measure real node headroom immediately before the rebuild
+        # (ADR 0040 §5) rather than trusting this comment.
+  destination:
+    server: https://kubernetes.default.svc
+    # Cilium lives in kube-system (chart default, and where a CNI belongs
+    # alongside k3s's own control-plane pods). kube-system always exists on
+    # k3s, so no CreateNamespace here.
+    namespace: kube-system
+  syncPolicy:
+    # No `automated:` block on purpose -- see the header. Manual sync only
+    # until the hand-bootstrapped release is adopted and proven, matching
+    # platform#92's precedent. Add prune/selfHeal in a later change once
+    # Cilium is stable and trusted to self-heal (a bad selfHeal on the CNI
+    # is the one thing that can wall off the API server on this single node).
+    syncOptions:
+      # Cilium ships large CRDs (ciliumnetworkpolicies etc.) that approach
+      # the 256KB client-side last-applied annotation limit, and SSA lets
+      # ArgoCD cleanly adopt the resources the manual `helm install`
+      # already created without ownership conflicts. Same reasoning as
+      # traefik.yaml's ServerSideApply.
+      - ServerSideApply=true
