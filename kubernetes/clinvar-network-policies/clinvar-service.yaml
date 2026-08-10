@@ -57,10 +57,10 @@ spec:
     # twice, independent of the dnsProxy.enableTransparentMode setting.
     # Plain L3/L4 port-53 allow (below) does not trigger the proxy
     # redirect at all and is unaffected -- normal Service/in-cluster DNS
-    # works fine without rules.dns. toFQDNs (NCBI) stays genuinely
-    # blocked until the upstream bug is fixed; see
-    # clinvar-service-ncbi-egress.yaml, deliberately excluded from this
-    # Application's sync (argocd/apps/clinvar-network-policies.yaml).
+    # works fine without rules.dns. NCBI egress (toFQDNs, needing this
+    # rule) stayed blocked until replaced with toCIDR instead -- see
+    # clinvar-service-ncbi-egress.yaml, back in this Application's sync
+    # (argocd/apps/clinvar-network-policies.yaml) since that rewrite.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: kube-system
