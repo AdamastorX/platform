@@ -19,11 +19,10 @@ spec:
     repoURL: https://github.com/AdamastorX/platform
     targetRevision: main
     path: kubernetes/api-network-policies
-    directory:
-      # api-pyroscope-agent-egress.yaml needs rules.dns (broken here,
-      # see backlog #50's entry and api.yaml) -- kept in git, excluded
-      # from sync until the upstream Cilium bug is fixed.
-      exclude: "api-pyroscope-agent-egress.yaml"
+    # api-pyroscope-agent-egress.yaml was excluded here while it used
+    # toFQDNs/rules.dns (broken in this cluster, backlog #50's DNS-proxy
+    # incident); rewritten as pure-L3 toCIDR (no DNS proxy involved) and
+    # re-included in sync -- see that file's own header for sources.
   destination:
     server: https://kubernetes.default.svc
     namespace: api

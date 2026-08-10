@@ -57,10 +57,10 @@ spec:
     # twice, independent of the dnsProxy.enableTransparentMode setting.
     # Plain L3/L4 port-53 allow (below) does not trigger the proxy
     # redirect at all and is unaffected -- normal Service/in-cluster DNS
-    # works fine without rules.dns. toFQDNs (NCBI) stays genuinely
-    # blocked until the upstream bug is fixed; see
-    # clinvar-service-ncbi-egress.yaml, deliberately excluded from this
-    # Application's sync (argocd/apps/clinvar-network-policies.yaml).
+    # works fine without rules.dns. NCBI egress (toFQDNs, needing this
+    # rule) stayed blocked until replaced with toCIDR instead -- see
+    # clinvar-service-ncbi-egress.yaml, back in this Application's sync
+    # (argocd/apps/clinvar-network-policies.yaml) since that rewrite.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: kube-system
@@ -120,13 +120,12 @@ spec:
             - port: "4040"
               protocol: TCP
     # clinvar-service -> NCBI (the only permitted public egress in the
-    # cluster, backlog #50's own AC): written (clinvar-service-ncbi-
-    # egress.yaml) but NOT applied -- excluded from this Application's
-    # sync (argocd/apps/clinvar-network-policies.yaml) since it needs
-    # the still-broken rules.dns L7 DNS proxy path (see above). A real,
-    # stated, temporarily-unenforceable gap, not a silent omission: the
-    # real ClinVar ingestion job (services/clinvar-service, config.py,
-    # CLINVAR_SOURCE_VCF_URL=https://ftp.ncbi.nlm.nih.gov/pub/clinvar/
-    # vcf_GRCh38/clinvar.vcf.gz) keeps its current unrestricted egress
-    # until the upstream Cilium bug is fixed and this rule can actually
-    # be turned on.
+    # cluster, backlog #50's own AC): lives in clinvar-service-ncbi-
+    # egress.yaml, rewritten 2026-08-10 from toFQDNs (blocked on the
+    # still-broken rules.dns L7 DNS proxy path, see above) to pure-L3
+    # toCIDR against NCBI's own published NIH ranges, and re-included
+    # in this Application's sync. Cilium unions both policies' rules
+    # for this pod, so the real ClinVar ingestion job (services/
+    # clinvar-service, config.py, CLINVAR_SOURCE_VCF_URL=
+    # https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/
+    # clinvar.vcf.gz) gets its 443 egress from that file, additively.

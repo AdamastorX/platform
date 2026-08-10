@@ -1,22 +1,16 @@
 # backlog #50: kube-state-metrics' own default-deny + explicit allows.
 #
-# node-exporter and alertmanager, the other two pods in this
-# namespace, deliberately get NO CiliumNetworkPolicy of their own:
-#   - prometheus-prometheus-node-exporter runs `hostNetwork: true` and
-#     shares Cilium's `reserved:host` identity with no distinct Cilium
-#     endpoint of its own (confirmed live, `cilium-dbg endpoint list`)
-#     -- a CiliumNetworkPolicy selecting it by pod label would not
-#     actually be enforced, a real Cilium constraint, not an oversight.
-#   - prometheus-alertmanager has a real, live, already-configured
-#     public egress dependency this cluster's real alerting depends on
-#     (the `ntfy` webhook receiver, `kubectl exec ... alertmanager-0
-#     -- cat /etc/alertmanager/alertmanager.yml`, confirmed live) --
-#     the same `toFQDNs`-blocked class of risk as the NCBI/GitHub gap
-#     this item's backlog entry already records, except unlike NCBI's
-#     periodic non-critical job, breaking this would silently kill
-#     real alerting. Left fully unrestricted rather than accept that
-#     regression, until the upstream Cilium DNS-proxy bug is actually
-#     fixed and a `toFQDNs` rule for ntfy.sh can be added safely.
+# node-exporter, one of the other pods in this namespace, deliberately
+# gets NO CiliumNetworkPolicy of its own: prometheus-prometheus-node-
+# exporter runs `hostNetwork: true` and shares Cilium's `reserved:host`
+# identity with no distinct Cilium endpoint of its own (confirmed live,
+# `cilium-dbg endpoint list`) -- a CiliumNetworkPolicy selecting it by
+# pod label would not actually be enforced, a real Cilium constraint,
+# not an oversight.
+# alertmanager, formerly also policy-less (its live `ntfy` webhook
+# egress sat in the same toFQDNs/DNS-proxy-blocked class as the NCBI/
+# GitHub gap), now has its own egress policy via pure-L3 toCIDR -- see
+# alertmanager.yaml in this directory.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
