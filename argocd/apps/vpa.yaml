@@ -1,0 +1,71 @@
+# backlog #101: Vertical Pod Autoscaler, recommendation mode only
+# (`updateMode: "Off"` on every real `VerticalPodAutoscaler` object,
+# kubernetes/vpa/*.yaml -- this file is just the VPA components
+# themselves). On a single-node cluster an actuating VPA (real pod
+# eviction/resize) is a self-inflicted outage risk this project has no
+# reason to take on -- #77 already proved the manual version of this
+# loop works fine at this scale, this item automates the recommend
+# side only.
+#
+# fairwinds-stable/vpa chosen over the alternatives checked (Artifact
+# Hub, 2026-08-11): more stars/adoption than the other community
+# charts (cowboysysop, riftbit, snowplow-devops), ships the real
+# upstream registry.k8s.io/autoscaling/vpa-* images (not a fork), and
+# -- the deciding factor -- cleanly splits recommender/updater/
+# admission-controller behind independent enabled flags, so this
+# cluster only runs the one component recommendation-only actually
+# needs.
+#
+# Real headroom checked live before deciding this (ADR 0040 §5's own
+# discipline): `kubectl describe node` showed 3595m/4000m (89%) CPU
+# requested, ~440m free -- tight, so only the recommender is deployed.
+# updater/admissionController are for actuation only (real pod
+# eviction / admission-time resource patching); recommendation-only
+# mode has zero use for either, and each would cost real CPU/memory
+# for a capability this item deliberately doesn't want.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vpa
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.fairwinds.com/stable
+    chart: vpa
+    targetRevision: 4.12.5
+    helm:
+      valuesObject:
+        recommender:
+          enabled: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 500Mi
+            limits:
+              cpu: 200m
+              memory: 1000Mi
+        # Actuation components, deliberately off -- see header.
+        updater:
+          enabled: false
+        admissionController:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vpa
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # This chart ships its own CRDs (kubernetes/vpa's own
+      # VerticalPodAutoscaler objects depend on them) via Helm's
+      # native crds/ mechanism -- installed on first sync, NOT
+      # upgraded automatically on later chart bumps (a known Helm
+      # limitation, not a bug here); Renovate (#98) will still open
+      # the PR for a version bump, a human just needs to know a CRD
+      # change specifically would need a manual apply too.
+      - ServerSideApply=true

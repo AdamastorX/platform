@@ -480,6 +480,21 @@ spec:
           - job_name: argocd
             static_configs:
               - targets: ['argocd-metrics.argocd.svc.cluster.local:8082']
+          # VPA recommender (backlog #101) -- no stable Service (chart
+          # deploys none for the recommender by default, same "no
+          # stable Service DNS for this port" shape as workers/traefik/
+          # keda above), so pod-role discovery filtered to the real
+          # named "metrics" container port (8942, confirmed against
+          # the chart's own rendered Deployment).
+          - job_name: vpa-recommender
+            kubernetes_sd_configs:
+              - role: pod
+                namespaces:
+                  names: ['vpa']
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_container_port_name]
+                regex: metrics
+                action: keep
         server:
           # backlog #114: found live 2026-08-07 -- no resources block on
           # the actual metrics-store/query pod, the largest real consumer

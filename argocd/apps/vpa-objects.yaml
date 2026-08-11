@@ -1,0 +1,34 @@
+# backlog #101: the real VerticalPodAutoscaler objects themselves --
+# see kubernetes/vpa/vpa-objects.yaml for the full, real, generated
+# list (50 objects: every Deployment/StatefulSet/DaemonSet in the
+# cluster, plus the api Rollout) and argocd/apps/vpa.yaml for the
+# recommender component this depends on.
+#
+# Real ordering dependency, not enforced by a sync wave (no precedent
+# for that pattern in this repo, and the failure mode here is benign):
+# these objects need the VerticalPodAutoscaler CRD vpa.yaml's chart
+# installs. If this Application syncs before vpa.yaml's has, it fails
+# cleanly (CRD not found) and self-heals on ArgoCD's own next
+# reconcile once the CRD exists -- no partial state, no risk, just a
+# transient error worth not being surprised by on first bootstrap.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vpa-objects
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/vpa
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
