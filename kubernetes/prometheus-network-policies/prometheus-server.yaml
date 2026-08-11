@@ -252,6 +252,20 @@ spec:
         - ports:
             - port: "9402"
               protocol: TCP
+    # VPA recommender (job_name: vpa-recommender, pod-role SD filtered
+    # to the "metrics" container port). Real container port confirmed
+    # via `helm template` (recommender.enabled=true, updater/
+    # admissionController disabled) -- no live traffic to check yet,
+    # this rule ships in the same PR as the recommender itself.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: vpa
+            app.kubernetes.io/name: vpa
+            app.kubernetes.io/component: recommender
+      toPorts:
+        - ports:
+            - port: "8942"
+              protocol: TCP
     # Mimir -- NOT a scrape target (found while enumerating this
     # policy's real flows): this Prometheus `remote_write`s to Mimir
     # (argocd/apps/prometheus.yaml's `remoteWrite: url: http://mimir.

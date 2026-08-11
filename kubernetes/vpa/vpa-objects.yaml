@@ -1,0 +1,682 @@
+# backlog #101: VerticalPodAutoscaler objects, one per real workload in
+# this cluster (Deployment/StatefulSet/DaemonSet, plus the one real
+# Rollout, api/api -- Argo Rollouts own CRD implements the real /scale
+# subresource VPA needs, confirmed live via
+# `kubectl get crd rollouts.argoproj.io -o jsonpath=
+# "{.spec.versions[?(@.name==\"v1alpha1\")].subresources}"`).
+#
+# Every object is `updateMode: "Off"` -- recommendation only, matches
+# the deliberate choice in argocd/apps/vpa.yaml (no updater/admission-
+# controller deployed at all, so nothing could actuate a recommendation
+# even if updateMode said otherwise; belt-and-suspenders, not just one
+# knob). A VerticalPodAutoscaler object is namespace-scoped and must
+# live in the same namespace as its real target -- every object below
+# does.
+#
+# Generated from the real live workload list
+# (`kubectl get deployments,statefulsets,daemonsets -A`, plus the api
+# Rollout), 2026-08-11 -- not hand-typed, to avoid a transcription
+# mismatch against 50 real object names/kinds/namespaces. Re-generate
+# the same way (or add one object by hand, same shape) whenever a real
+# workload is added or removed -- nothing here auto-discovers new
+# workloads, deliberately: an explicit list here is a real, reviewable
+# diff every time the workload roster changes, the same reasoning
+# backlog #97's roster-drift check already applies elsewhere in this
+# project.
+#
+# kube-system's own built-in components (coredns, metrics-server,
+# local-path-provisioner) are included too, even though this repo does
+# not itself define their resource requests (k3s ships them) --
+# recommendation-only VPA is pure read-only signal, no reason to
+# exclude real workloads from that signal just because we do not
+# currently own their manifest.
+
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: aggregator
+  namespace: aggregator
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: aggregator
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: alloy
+  namespace: alloy
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: alloy
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: api
+  namespace: api
+spec:
+  targetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: api
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: postgresql
+  namespace: api
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: postgresql
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: redis-master
+  namespace: api
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: redis-master
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argo-rollouts
+  namespace: argo-rollouts
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: argo-rollouts
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argocd-application-controller
+  namespace: argocd
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: argocd-application-controller
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argocd-applicationset-controller
+  namespace: argocd
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: argocd-applicationset-controller
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argocd-dex-server
+  namespace: argocd
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: argocd-dex-server
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argocd-notifications-controller
+  namespace: argocd
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: argocd-notifications-controller
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argocd-redis
+  namespace: argocd
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: argocd-redis
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: argocd-repo-server
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: argocd-server
+  namespace: argocd
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: argocd-server
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: beyla
+  namespace: beyla
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: beyla
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: blackbox-exporter
+  namespace: blackbox-exporter
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: blackbox-exporter
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cert-manager
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: cert-manager-cainjector
+  namespace: cert-manager
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cert-manager-cainjector
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: cert-manager-webhook
+  namespace: cert-manager
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cert-manager-webhook
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: clinvar-postgresql
+  namespace: clinvar
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: clinvar-postgresql
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: clinvar-service
+  namespace: clinvar
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clinvar-service
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: clinvar-viewer
+  namespace: clinvar-viewer
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clinvar-viewer
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: grafana
+  namespace: grafana
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: grafana
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: kafka-controller
+  namespace: kafka
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: kafka-controller
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: keda-operator
+  namespace: keda
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: keda-operator
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: keda-operator-metrics-apiserver
+  namespace: keda
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: keda-operator-metrics-apiserver
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: cilium
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: cilium-operator
+  namespace: kube-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cilium-operator
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: coredns
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: hubble-relay
+  namespace: kube-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hubble-relay
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: hubble-ui
+  namespace: kube-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hubble-ui
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: local-path-provisioner
+  namespace: kube-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: local-path-provisioner
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: metrics-server
+  namespace: kube-system
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metrics-server
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: loki
+  namespace: loki
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: loki
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: market-data-ingestor
+  namespace: market-data-ingestor
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: market-data-ingestor
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: mimir
+  namespace: mimir
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mimir
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: news-ingestor
+  namespace: news-ingestor
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: news-ingestor
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: otel-collector
+  namespace: otel
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: otel-collector
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: prometheus-alertmanager
+  namespace: prometheus
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: prometheus-alertmanager
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: prometheus-kube-state-metrics
+  namespace: prometheus
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: prometheus-kube-state-metrics
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: prometheus-prometheus-node-exporter
+  namespace: prometheus
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: DaemonSet
+    name: prometheus-prometheus-node-exporter
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: prometheus-server
+  namespace: prometheus
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: prometheus-server
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: pyroscope
+  namespace: pyroscope
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: pyroscope
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: sentiment-analyzer
+  namespace: sentiment-analyzer
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sentiment-analyzer
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: tempo
+  namespace: tempo
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: tempo
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: traefik
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: visualizer
+  namespace: visualizer
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: visualizer
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: watchlist-postgresql
+  namespace: watchlist
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: watchlist-postgresql
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: watchlist-service
+  namespace: watchlist
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: watchlist-service
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: workers
+  namespace: workers
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: workers
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: workload-generator
+  namespace: workload-generator
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: workload-generator
+  updatePolicy:
+    updateMode: "Off"
