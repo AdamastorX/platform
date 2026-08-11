@@ -44,20 +44,31 @@ spec:
           # everything else (page cache for log segments especially) once
           # messages pile up. Memory bumped explicitly (not just a bigger
           # preset) since CPU was never implicated and this node's CPU is
-          # already tight (98% of allocatable requested, confirmed live via
-          # `kubectl describe node`) -- memory has real headroom (only 35%
-          # of ~19.4Gi in limits), confirmed before picking this number, not
-          # assumed. Not yet re-verified against a second real OOM
-          # (backlog #75's own stated AC) -- this is the fast, defensible
-          # fix given real headroom exists and CPU is the actually scarce
-          # resource here; the clean isolating re-run stays open.
+          # tight -- memory has real headroom. **#75's own re-run closed
+          # 2026-08-02**: the OOM doesn't reproduce at real traffic (the
+          # original run's 10x test rate was the actual trigger), so this
+          # bump stayed in place as cheap real headroom, not because #75
+          # itself stayed open.
+          #
+          # backlog #84: a second, real, separate memory-pressure finding
+          # -- confirmed live 2026-08-11 (`kubectl top pod`) that
+          # kafka-controller-0 sits at ~1427Mi/1536Mi (93%) steady-state,
+          # broker alone, no client exec running. `kafka-topics.sh --list`
+          # execs a second JVM client process inside the *same* container
+          # (same memory cgroup, same limit) -- real, live-confirmed
+          # 2026-08-02 to OOMKill the broker this way (self-recovered
+          # ~90s later, but a real, repeatable operational risk on
+          # routine tooling, not just backlog scenarios). Bumped again,
+          # same reasoning as #75: node memory has real headroom (43%
+          # requested at the time of this change, `kubectl describe
+          # node`), CPU remains the scarce resource this doesn't touch.
           resources:
             requests:
               cpu: 500m
-              memory: 512Mi
+              memory: 1024Mi
             limits:
               cpu: 750m
-              memory: 1536Mi
+              memory: 2560Mi
           persistence:
             # ADR 0032 (backlog #95, 2026-08-07): reverses ADR 0011's own
             # emptyDir choice, superseded rather than deleted (see that
