@@ -57,13 +57,23 @@ spec:
         # (confirmed live via `kubectl get svc -n traefik traefik`, not
         # assumed stable across a chart upgrade -- revisit if Traefik's
         # own Service is ever recreated with a different ClusterIP).
+        #
+        # Backlog #122: this is exactly what happened. The #49 cluster
+        # rebuild (2026-08-10) recreated Traefik's Service with a new
+        # ClusterIP; this file's own value went stale and every real
+        # probe silently 502'd for 34+ hours (`BlackboxProbeFailing`,
+        # 6 targets) before being found and fixed -- a real, live
+        # confirmation of the risk this comment had already named in
+        # writing. No mechanism added to prevent recurrence yet (a
+        # future rebuild will hit this again) -- tracked as a real,
+        # stated gap, not silently left implicit a second time.
         # Traefik's own Host-header-based IngressRoute matching (ADR
         # 0005) then routes each probe to the right backend exactly as
         # it would for a real browser, so this is a genuine end-to-end
         # probe through the real Ingress/TLS/routing chain, not a
         # shortcut to each Service's in-cluster DNS.
         hostAliases:
-          - ip: 10.43.225.45
+          - ip: 10.43.205.209
             hostNames:
               - api.local.adamastorx.test
               - aggregator.local.adamastorx.test

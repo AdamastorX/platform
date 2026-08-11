@@ -239,6 +239,31 @@ spec:
             - name: news.sentiment.scored
               partitions: 1
               replicationFactor: 1
+            # backlog #53/#122 (ADR 0019/0026): clinvar-service's real
+            # ingestion-complete event, the trigger for watchlist-service's
+            # own guaranteed fan-out. Real, live gap found and closed
+            # 2026-08-11: this topic was NEVER declared here, in any
+            # commit, ever (confirmed via `git log -S`) -- it existed on
+            # the pre-#49-rebuild cluster only because it was created
+            # out-of-band at some point (a manual `kafka-topics.sh
+            # --create`, matching docs/SESSION_STATE.md's own documented
+            # "recovering a topic after a broker restart raced this Job"
+            # fallback pattern), never captured in git. The #49 rebuild
+            # only recreates what git declares, so this topic simply
+            # didn't come back -- `api` and `watchlist-service` hot-looped
+            # `UNKNOWN_TOPIC_OR_PARTITION` for 34+ hours before this was
+            # found and fixed at the root instead of patched again by
+            # hand. 1 partition, same reasoning as news.article.published/
+            # news.sentiment.scored above: exactly one producer
+            # (clinvar-service, a single replica), broadcast to two
+            # independent consumer groups (api, watchlist-service) that
+            # both need every message, not partitioned throughput --
+            # confirmed against the real test suites in both consumers
+            # (`@EmbeddedKafka(partitions = 1, ...)` in every real
+            # integration test that exercises this topic).
+            - name: clinvar.ingestion.completed
+              partitions: 1
+              replicationFactor: 1
   destination:
     server: https://kubernetes.default.svc
     namespace: kafka
