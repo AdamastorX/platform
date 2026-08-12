@@ -57,7 +57,14 @@ spec:
           # same convention as api/workers) -- bump this one line
           # and open a PR to deploy a new build. Published by services'
           # build-publish.yml's publish-clinvar-service job (services#35).
-          image: ghcr.io/adamastorx/clinvar-service:948ee831ed120a1c9a8307f0527cd1425967ff1d
+          # backlog #122 (services#68): zero-inits the ingestion-status
+          # counter's labels so ClinVarIngestionFreshnessBreach's
+          # increase() has a real 0 baseline to detect a rise against --
+          # code fix only, this bump is what actually puts it live. The
+          # in-memory counter doesn't persist across restarts, so the
+          # alert clears only once this new pod runs *and* a subsequent
+          # real ingestion succeeds against it, not immediately here.
+          image: ghcr.io/adamastorx/clinvar-service:fe207ea2c36ae080d4e79af0e01b5a5b70f466d2
           ports:
             - name: http
               containerPort: 8000
