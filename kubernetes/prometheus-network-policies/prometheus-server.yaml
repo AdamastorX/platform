@@ -73,6 +73,31 @@ spec:
         - ports:
             - port: "9090"
               protocol: TCP
+    # argo-rollouts -> prometheus-server (backlog #122, real, live gap
+    # found 2026-08-12): the AnalysisTemplate's own automated SLO gate
+    # (ADR/backlog #46) queries Prometheus directly from the
+    # argo-rollouts controller pod to evaluate the non-5xx-rate/
+    # p95-latency-seconds metrics on every canary step. Missing from
+    # this policy's original live Hubble capture for the same reason
+    # clinvar-service's Kafka connection and api's GitHub egress were
+    # both missed in their own batches -- a periodic/triggered flow (one
+    # per canary deploy), not constant traffic a 10-minute capture
+    # window would ever see. Real, live consequence, not theoretical:
+    # every api canary deploy since this policy went live got its
+    # AnalysisRun's Prometheus query time out 5 times in a row
+    # ("context deadline exceeded"), tripping consecutiveErrorLimit and
+    # aborting/rolling back the rollout -- confirmed live via
+    # `kubectl get events -n api` during a real, unrelated incident
+    # response (an api OOM-crash-loop fix's own canary got aborted
+    # twice by this exact gap before it was found).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: argo-rollouts
+            app.kubernetes.io/name: argo-rollouts
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
   egress:
     # DNS, explicitly, everywhere -- backlog #50's own named footgun.
     # Plain L3/L4 only, no rules.dns (the real, live DNS-proxy bug this
