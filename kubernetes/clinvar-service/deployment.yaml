@@ -19,38 +19,25 @@ spec:
       labels:
         app: clinvar-service
     spec:
-      # backlog #57: pip-installs the real, published `pyroscope-io`
-      # package into a shared emptyDir instead of baking it into a
-      # rebuilt image -- same unprivileged init-container/agent-injection
-      # pattern as kubernetes/api/rollout.yaml, see that file's comment
-      # and argocd/apps/pyroscope.yaml's own comment for why (no image
-      # rebuild/merge dependency, no privileged DaemonSet). python:3.12-slim
-      # matches this service's own Dockerfile base exactly (glibc/ABI
-      # match for pyroscope-io's compiled extension) -- confirmed against
-      # clinvar-service/Dockerfile before picking this init-container image
-      # rather than assumed compatible.
-      initContainers:
-        - name: pyroscope-agent-install
-          image: python:3.12-slim
-          command:
-            - sh
-            - -c
-            - pip install --no-cache-dir --target=/pyroscope-deps pyroscope-io
-          volumeMounts:
-            - name: pyroscope-deps
-              mountPath: /pyroscope-deps
-          # backlog #57 fix: found live -- same real "failed quota"
-          # FailedCreate api's own Rollout hit (see rollout.yaml's
-          # matching comment). clinvar's namespace ResourceQuota also
-          # sets a memory quota, requiring every container's own
-          # requests.memory/limits.memory explicitly.
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 250m
-              memory: 256Mi
+      # backlog #57 originally pip-installed the real, published
+      # `pyroscope-io` package into a shared emptyDir via an init
+      # container instead of baking it into a rebuilt image -- avoided an
+      # image rebuild/merge dependency at the time. backlog #50's later
+      # default-deny CiliumNetworkPolicy for this namespace
+      # (clinvar-network-policies/clinvar-service.yaml) invalidated that
+      # tradeoff: the init container's runtime `pip install` needs public
+      # PyPI/Fastly egress, which that policy never granted (and
+      # deliberately shouldn't -- Fastly's real published range is a
+      # large, shared, multi-tenant CDN block, a far broader hole than
+      # the dedicated-range NCBI egress this namespace already carries
+      # for the real ClinVar download). This was invisible until this
+      # pod's first real restart after the policy went live
+      # (2026-08-10T17:22:32Z) permanently wedged it at Init:0/1 --
+      # confirmed live during services#68's deploy (backlog #122).
+      # services#69 moved the install to build time instead (a real
+      # manylinux wheel, no compiler needed against this same
+      # python:3.12-slim base) -- no init container, no PYTHONPATH
+      # override, no pyroscope-deps volume needed anymore.
       containers:
         - name: clinvar-service
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
@@ -59,12 +46,14 @@ spec:
           # build-publish.yml's publish-clinvar-service job (services#35).
           # backlog #122 (services#68): zero-inits the ingestion-status
           # counter's labels so ClinVarIngestionFreshnessBreach's
-          # increase() has a real 0 baseline to detect a rise against --
-          # code fix only, this bump is what actually puts it live. The
-          # in-memory counter doesn't persist across restarts, so the
-          # alert clears only once this new pod runs *and* a subsequent
-          # real ingestion succeeds against it, not immediately here.
-          image: ghcr.io/adamastorx/clinvar-service:fe207ea2c36ae080d4e79af0e01b5a5b70f466d2
+          # increase() has a real 0 baseline to detect a rise against.
+          # backlog #122 (services#69): also bakes pyroscope-io into this
+          # same image at build time (see the initContainers comment
+          # above, now removed). The in-memory counter doesn't persist
+          # across restarts, so the alert clears only once this new pod
+          # runs *and* a subsequent real ingestion succeeds against it,
+          # not immediately on rollout.
+          image: ghcr.io/adamastorx/clinvar-service:97a8110515fd7205707ed69c8fa328d834b6e38e
           ports:
             - name: http
               containerPort: 8000
@@ -73,7 +62,10 @@ spec:
           # the Kubernetes level only, wrapping the same call with a
           # one-line pyroscope.configure() first. Equivalent to the
           # original entrypoint otherwise: same module (app.main:app),
-          # same host/port.
+          # same host/port. `python` here resolves to the image's own
+          # venv (PATH="/opt/venv/bin:$PATH", clinvar-service/Dockerfile)
+          # where pyroscope-io now already lives (services#69) -- no
+          # PYTHONPATH override needed anymore.
           command: ["python", "-c"]
           args:
             - |
@@ -82,8 +74,6 @@ spec:
               import uvicorn
               uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
           env:
-            - name: PYTHONPATH
-              value: /pyroscope-deps
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092
             - name: OTLP_COLLECTOR_ENDPOINT
@@ -152,12 +142,7 @@ spec:
           volumeMounts:
             - name: refdata
               mountPath: /data/clinvar
-            - name: pyroscope-deps
-              mountPath: /pyroscope-deps
-              readOnly: true
       volumes:
         - name: refdata
           persistentVolumeClaim:
             claimName: clinvar-service-refdata
-        - name: pyroscope-deps
-          emptyDir: {}
