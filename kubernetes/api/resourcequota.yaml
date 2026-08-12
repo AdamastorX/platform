@@ -18,14 +18,20 @@
 #   redis:      requests cpu=150m mem=512Mi, limits cpu=750m mem=768Mi (backlog
 #               #77: CPU request trimmed from 500m -- real usage sampled
 #               at 36-38m. Limit/memory untouched)
-# Steady-state totals: requests cpu=500m mem=1280Mi, limits cpu=2500m mem=2048Mi.
+# **Updated 2026-08-12 (backlog #122)**: api's own memory bumped again,
+# requests mem=256Mi->384Mi, limits mem=512Mi->1024Mi -- a real, live
+# OutOfMemoryError crash loop (70 restarts), root-caused to no explicit
+# JVM heap sizing (rollout.yaml's own JAVA_TOOL_OPTIONS comment has the
+# full account). CPU values unchanged.
+# Steady-state totals: requests cpu=500m mem=1408Mi, limits cpu=2500m mem=2560Mi.
 # api is the one Deployment here (Postgres/Redis are StatefulSets, no
 # surge on update) -- a rolling update temporarily runs two api pods
-# (default maxSurge=1), adding +250m/+256Mi requests and +1/+512Mi limits
-# at peak (3500m limits.cpu at peak). Quota below clears that peak with
-# real headroom, it isn't just steady-state with no room for a deploy to
-# happen -- confirmed necessary live, not just in theory: this project
-# already hit its own too-tight quota once (the CPU limit bump above).
+# (default maxSurge=1), adding +250m/+384Mi requests and +1/+1024Mi
+# limits at peak (3500m cpu / 3584Mi memory limits at peak). Quota below
+# clears that peak with real headroom, it isn't just steady-state with
+# no room for a deploy to happen -- confirmed necessary live, not just
+# in theory: this project already hit its own too-tight quota once (the
+# CPU limit bump above).
 apiVersion: v1
 kind: ResourceQuota
 metadata:

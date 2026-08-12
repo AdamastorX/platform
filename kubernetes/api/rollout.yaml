@@ -153,7 +153,22 @@ spec:
             # Pyroscope's own documented recommendation for accurate
             # async-profiler line numbers, not this project's default.
             - name: JAVA_TOOL_OPTIONS
-              value: "-javaagent:/pyroscope-agent/pyroscope.jar -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints"
+              # backlog #122: real, live OutOfMemoryError crash loop found
+              # 2026-08-12 (70 restarts, exitCode 137, "Java heap space"
+              # across Tomcat request threads, the Kafka consumer, and
+              # Pyroscope's own profile-dump path). Root cause: no
+              # explicit heap sizing at all -- the JVM's own cgroup-aware
+              # default (MaxRAMPercentage, ~25% of the container memory
+              # limit absent an override) left only ~128Mi of real heap
+              # for a Spring Boot app running Kafka clients, HikariCP,
+              # Tomcat, OTel, and a continuous-profiling agent
+              # simultaneously. 75.0 is the standard container-JVM
+              # guidance (leaves ~25% of the container's memory for
+              # off-heap: metaspace, thread stacks, direct buffers, GC
+              # bookkeeping) -- explicit and intentional rather than
+              # trusting the conservative unconfigured default a second
+              # time.
+              value: "-javaagent:/pyroscope-agent/pyroscope.jar -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:MaxRAMPercentage=75.0"
             - name: PYROSCOPE_APPLICATION_NAME
               value: api
             - name: PYROSCOPE_SERVER_ADDRESS
@@ -218,7 +233,12 @@ spec:
           resources:
             requests:
               cpu: 250m
-              memory: 256Mi
+              # backlog #122: memory bumped 256Mi->384Mi alongside the
+              # limit bump below -- same real OOM crash loop, real node
+              # headroom checked live first (44% memory requested
+              # cluster-wide at the time, CPU is the actually-scarce
+              # resource here, this doesn't touch it).
+              memory: 384Mi
             # platform#35: explicit CPU limit added alongside the existing
             # memory limit -- previously unbounded, so a runaway CPU-bound
             # request handler had no ceiling on a single-node cluster where
@@ -229,9 +249,17 @@ spec:
             # size (already accounted for in resourcequota.yaml's own
             # "rolling update temporarily runs two api pods" headroom
             # comment -- a canary surge pod is the same shape of peak).
+            #
+            # backlog #122 (2026-08-12): 512Mi->1024Mi, a real, live
+            # OutOfMemoryError crash loop (70 restarts, exitCode 137) --
+            # see JAVA_TOOL_OPTIONS's own comment above for the root
+            # cause (no explicit heap sizing) and the paired
+            # MaxRAMPercentage fix. resourcequota.yaml's own hard limits
+            # (4Gi limits.memory) already had real headroom for this --
+            # checked before picking this number, not assumed.
             limits:
               cpu: "1"
-              memory: 512Mi
+              memory: 1024Mi
       volumes:
         - name: pyroscope-agent
           emptyDir: {}
