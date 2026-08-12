@@ -4,22 +4,28 @@
 #
 # Sized from real usage, not guessed -- `kubectl -n clinvar get pods -o
 # json` on the live cluster (2026-07) showed:
-#   clinvar-service:     requests cpu=100m mem=384Mi, limits cpu=1 mem=768Mi
+#   clinvar-service:     requests cpu=100m mem=384Mi, limits cpu=1 mem=1536Mi
 #                        (backlog #77: CPU request trimmed from 250m --
 #                        real usage sampled at 27-32m steady-state.
-#                        Limit/memory untouched, still covers the weekly
-#                        ingestion burst)
+#                        **Updated 2026-08-12 (backlog #122)**: memory
+#                        limit doubled 768Mi->1536Mi after a real OOM
+#                        during a real triggered ingestion -- see
+#                        deployment.yaml's own comment for the live
+#                        evidence)
 #   clinvar-postgresql:  requests cpu=100m mem=512Mi, limits cpu=750m mem=768Mi
 #                        (backlog #77: CPU request trimmed from the chart's
 #                        resourcesPreset: small default of 500m -- real
 #                        usage sampled at 18-21m. Limit/memory untouched)
-# Steady-state totals: requests cpu=200m mem=896Mi, limits cpu=1750m mem=1536Mi.
+# Steady-state totals: requests cpu=200m mem=896Mi, limits cpu=1750m mem=2304Mi.
 # clinvar-service is the one Deployment here (clinvar-postgresql is a
 # StatefulSet, no surge on update) -- a rolling update temporarily runs
-# two clinvar-service pods (default maxSurge=1), adding +250m/+384Mi
-# requests and +1000m/+768Mi limits at peak, which also has to cover the
-# CPU burst during a weekly ClinVar ingestion. Quota below clears that
-# peak with headroom.
+# two clinvar-service pods (default maxSurge=1), adding +100m/+384Mi
+# requests and +1000m/+1536Mi limits at peak, which also has to cover the
+# CPU/memory burst during a weekly ClinVar ingestion landing mid-rollout.
+# Peak: requests cpu=300m mem=1280Mi, limits cpu=2750m mem=3840Mi. Quota
+# below clears that peak with real headroom, not just steady-state --
+# limits.memory raised 3Gi->4Gi specifically to cover it (3Gi would leave
+# no room for the doubled clinvar-service limit during a real surge).
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -29,4 +35,4 @@ spec:
     requests.cpu: 1500m
     requests.memory: 2Gi
     limits.cpu: 3500m
-    limits.memory: 3Gi
+    limits.memory: 4Gi

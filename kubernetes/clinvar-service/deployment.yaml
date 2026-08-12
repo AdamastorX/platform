@@ -132,13 +132,29 @@ spec:
           # above is what actually has to cover the weekly tabix-indexing
           # burst, and it's unchanged, so this doesn't touch that
           # headroom.
+          # **Updated 2026-08-12 (backlog #122)**: memory *limit* bumped
+          # 768Mi -> 1536Mi -- a real, live OOM (exit 137, confirmed via
+          # Prometheus's own container_memory_working_set_bytes: climbed
+          # 73MiB -> 767MiB over ~7 real minutes of a real triggered
+          # ingestion, killed right at the old 768Mi ceiling, still
+          # climbing when killed so the true peak was never observed).
+          # The original 768Mi sizing predates continuous profiling
+          # (backlog #57) ever being validated against a full real
+          # ingestion run at this memory ceiling together, and/or ClinVar's
+          # real upstream VCF has grown since that sizing was last
+          # checked -- either way, real evidence, not a guess. Doubled
+          # rather than trimmed to the observed peak, since the true peak
+          # is unknown (still rising at kill time) and ClinVar's release
+          # size is expected to keep growing over time. Request
+          # untouched -- backlog #77's steady-state (non-ingestion)
+          # sampling is unaffected by a burst-only ceiling change.
           resources:
             requests:
               cpu: 100m
               memory: 384Mi
             limits:
               cpu: "1"
-              memory: 768Mi
+              memory: 1536Mi
           volumeMounts:
             - name: refdata
               mountPath: /data/clinvar
