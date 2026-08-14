@@ -136,7 +136,13 @@ spec:
           # bump this one line and open a PR to deploy a new build. Every
           # such bump now goes through the canary strategy above instead
           # of a plain rolling update.
-          image: ghcr.io/adamastorx/api:206478af0811ff7511843053c664bda5604cab3b
+          # backlog #130 (services#70): GET /work-items gains real
+          # pagination -- the old unbounded repository.findAll() was
+          # OOMKilling this pod live, 282 restarts over 41h, driven by
+          # workload-generator's own ordinary read traffic. This deploy
+          # is what actually stops the crash loop; the fix landing in
+          # services alone does nothing for the live pod until this ships.
+          image: ghcr.io/adamastorx/api:1011339b19ab15f19f836f58bdfa39d2085fa6e6
           ports:
             - name: http
               containerPort: 8080
