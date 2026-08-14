@@ -68,7 +68,15 @@ spec:
           # can no longer self-perpetuate the way a flat reconnectDelay
           # did (285+ failures with no growth, live evidence). A real
           # 429 specifically jumps the backoff ahead immediately.
-          image: ghcr.io/adamastorx/market-data-ingestor:87279721f56098deb83e0df18660a414b1c02f81
+          # backlog #133 (services#73): the watchdog now also
+          # force-reconnects when StaleFeedMetrics reports any
+          # watchlisted ticker stale during real market hours, not just
+          # on protocol-level frame silence -- found live, a connection
+          # stayed "alive" (still answering Finnhub's own keep-alive
+          # pings) for ~29 real hours while delivering zero real trades
+          # for all 5 tickers; a manual force-reconnect fixed it in
+          # seconds, this is that same fix, automatic.
+          image: ghcr.io/adamastorx/market-data-ingestor:57c719244b89edc64a9ee1b3030b39097627c6da
           ports:
             # No Kubernetes Service for this port (ADR 0009/0011, same as
             # workers) -- this service has no business HTTP API for
