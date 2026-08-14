@@ -212,6 +212,39 @@ spec:
     # alongside k3s's own control-plane pods). kube-system always exists on
     # k3s, so no CreateNamespace here.
     namespace: kube-system
+  # backlog #133 (found live, ArgoCDAppOutOfSync firing since 2026-08-12):
+  # this chart's default hubble.tls.auto.method is "helm", which
+  # regenerates a fresh self-signed cert via Helm's own genSelfSignedCert
+  # on every render -- a well-known real Helm/ArgoCD interaction, not a
+  # bug in these three Secrets themselves. Confirmed live: `kubectl diff`
+  # (server-side dry-run, the real ground truth) against the other two
+  # OutOfSync-looking Secrets showed only their `data` values differing,
+  # never `metadata`/`type`. Ignoring `data` here is the standard,
+  # documented ArgoCD pattern for exactly this class of chart-managed,
+  # non-deterministic cert regeneration -- switching to
+  # hubble.tls.auto.method=certmanager (cert-manager is already deployed
+  # in this cluster) would remove the regeneration entirely, but is a
+  # real, riskier change to Hubble's own mTLS material not attempted here
+  # under this same pass; left as real future scope if this recurs.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      namespace: kube-system
+      name: cilium-ca
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: Secret
+      namespace: kube-system
+      name: hubble-relay-client-certs
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: Secret
+      namespace: kube-system
+      name: hubble-server-certs
+      jsonPointers:
+        - /data
   syncPolicy:
     # No `automated:` block on purpose -- see the header. Manual sync only
     # until the hand-bootstrapped release is adopted and proven, matching
