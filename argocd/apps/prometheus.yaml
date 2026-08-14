@@ -895,23 +895,34 @@ spec:
                   # pipeline) both measured ~7 real minutes (416-420s),
                   # within 1% of each other -- proving this is the real
                   # current baseline, not a regression those fixes
-                  # introduced. Threshold recalibrated to the same "4x
-                  # baseline" philosophy, now anchored to the real ~420s
-                  # number: 1800s (30m).
+                  # introduced. Threshold recalibrated to real ~420s
+                  # baseline, but deliberately tighter than a naive 4x
+                  # (1680s) would suggest: review caught that this alert's
+                  # own real job is catching a real double-ingestion that
+                  # *survives* to completion but runs long from contention
+                  # (services#36's lock is the primary defense; a run that
+                  # OOMs outright is ClinVarIngestionFreshnessBreach's
+                  # job, not this one's -- it never records a duration
+                  # sample at all). A naive 2x-baseline double-ingestion
+                  # is ~840s; 1680-1800s would silently miss it. 1200s
+                  # (~2.9x baseline) keeps real single-run variance
+                  # (416-420s, ~1% apart) comfortably clear while staying
+                  # under half of what a real contending-double-run would
+                  # plausibly take.
                   - alert: ClinVarIngestionDurationAnomaly
                     expr: >-
                       (
                         rate(clinvar_ingestion_duration_seconds_sum{job="clinvar-service"}[1h])
                         /
                         rate(clinvar_ingestion_duration_seconds_count{job="clinvar-service"}[1h])
-                      ) > 1800
+                      ) > 1200
                       and rate(clinvar_ingestion_duration_seconds_count{job="clinvar-service"}[1h]) > 0
                     for: 2m
                     labels:
                       severity: warning
                     annotations:
                       summary: "ClinVar ingestion ran several times longer than its ~7-minute real-data baseline"
-                      description: "The most recent ClinVar ingestion run's observed duration is over 1800s (30m, ~4x the real ~420s baseline measured from two independent full-scale runs). See ADR 0020's SLO table and its 2026-08-14 addendum."
+                      description: "The most recent ClinVar ingestion run's observed duration is over 1200s (20m, ~2.9x the real ~420s baseline measured from two independent full-scale runs). See ADR 0020's SLO table and its 2026-08-14 addendum."
 
                   # watchlist-service DLQ depth (backlog #53's own AC: "a
                   # metric and an alert" on subscriber dead-lettering).
