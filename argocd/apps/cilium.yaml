@@ -212,7 +212,7 @@ spec:
     # alongside k3s's own control-plane pods). kube-system always exists on
     # k3s, so no CreateNamespace here.
     namespace: kube-system
-  # backlog #133 (found live, ArgoCDAppOutOfSync firing since 2026-08-12):
+  # backlog #134 (found live, ArgoCDAppOutOfSync firing since 2026-08-12):
   # this chart's default hubble.tls.auto.method is "helm", which
   # regenerates a fresh self-signed cert via Helm's own genSelfSignedCert
   # on every render -- a well-known real Helm/ArgoCD interaction, not a
