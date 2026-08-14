@@ -53,7 +53,12 @@ spec:
           # across restarts, so the alert clears only once this new pod
           # runs *and* a subsequent real ingestion succeeds against it,
           # not immediately on rollout.
-          image: ghcr.io/adamastorx/clinvar-service:97a8110515fd7205707ed69c8fa328d834b6e38e
+          # backlog #132 (services#71): streams variant-index inserts
+          # instead of holding a real run's entire ~2.9M rows in memory
+          # at once -- the real, confirmed dominant contributor to three
+          # consecutive live OOM kills (backlog #131/ADR 0041), all well
+          # under this container's own memory limit.
+          image: ghcr.io/adamastorx/clinvar-service:e30079734da13a0bb5774052037c49cfe054d019
           ports:
             - name: http
               containerPort: 8000
