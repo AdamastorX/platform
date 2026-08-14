@@ -58,7 +58,12 @@ spec:
           # at once -- the real, confirmed dominant contributor to three
           # consecutive live OOM kills (backlog #131/ADR 0041), all well
           # under this container's own memory limit.
-          image: ghcr.io/adamastorx/clinvar-service:e30079734da13a0bb5774052037c49cfe054d019
+          # backlog #132 (services#72): a fourth real attempt, on
+          # services#71's own fix, confirmed that fix working (flat
+          # ~88MiB across the whole scan) and isolated the remaining
+          # peak to compute_changed_keys' two-full-dict diff step,
+          # which now streams against one dict instead.
+          image: ghcr.io/adamastorx/clinvar-service:725bbe530e8541d3cdb71b4a60592e7eda2d3efe
           ports:
             - name: http
               containerPort: 8000
