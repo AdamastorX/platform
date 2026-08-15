@@ -144,28 +144,24 @@ spec:
           # data volume; the margin here is generous relative to that
           # bound, not sized to exactly match it.
           #
-          # HONEST FLAG (backlog #81's own stated requirement, not
-          # glossed over): real current node headroom, checked live via
-          # `kubectl describe node` immediately before this file was
-          # written -- 3045m/4000m (76%) CPU requested, ~955m free
-          # (under 1 core) -- tighter than any of #78/#79/#80's own
-          # first deploys (each had ~1.4-1.7 free cores at their own
-          # deploy time). The CPU *request* below (250m) fits with real
-          # room to spare. The CPU *limit* (1000m) is a different
-          # question: if this service's real startup burst (JVM
-          # JIT-warmup concurrent with Kafka Streams' own RocksDB-open/
-          # changelog-replay I/O) coincides with a burst from any other
-          # already-live M13 service on this same node, the two limits
-          # together could plausibly consume most of this node's
-          # currently-free ~955m. This has NOT been measured live (no
-          # live sync attempted for this item, see the PR description)
-          # -- a real, human go/no-go judgment call belongs here at
-          # actual deploy time, against a *fresh* `kubectl describe
-          # node` reading taken immediately before sync, not this
-          # comment's now-stale numbers.
+          # CPU request right-sized (2026-08-15, backlog #101's own
+          # "one real adjustment cycle" AC): the 250m above was this
+          # service's own first-deploy estimate (see above), never
+          # revisited against real running data. VPA's recommender (Off
+          # mode, no actuation -- platform#163) has since matured real
+          # data: `kubectl top pod` shows actual steady-state usage of
+          # 5m, and VPA's own target/upperBound for this container are
+          # 15m/28m -- all comfortably below 250m. 50m chosen over VPA's
+          # raw 15m target: real headroom above both the measured 5m and
+          # VPA's own 28m upperBound, not a blind adopt of the
+          # recommendation. Memory left untouched -- VPA's own target
+          # (~335Mi) already sits close to the existing 320Mi request,
+          # no real gap to close there. Node headroom before this change
+          # (`kubectl describe node`, immediately prior): 3395m/4000m
+          # (84%) CPU requested -- this frees ~200m back.
           resources:
             requests:
-              cpu: 250m
+              cpu: 50m
               memory: 320Mi
             limits:
               cpu: "1"
