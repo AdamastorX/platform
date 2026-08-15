@@ -142,7 +142,13 @@ spec:
           # workload-generator's own ordinary read traffic. This deploy
           # is what actually stops the crash loop; the fix landing in
           # services alone does nothing for the live pod until this ships.
-          image: ghcr.io/adamastorx/api:1011339b19ab15f19f836f58bdfa39d2085fa6e6
+          # backlog #105 (services#74): real, explicit fast-fail timeouts
+          # -- HikariCP connection-timeout 3s (was Boot's 30s default),
+          # and ClinVarServiceClient's outbound RestClient gains a 2s
+          # connect / 3s read timeout it previously had none of at all.
+          # A real decision recorded back in 2026-08-09 (ADR 0040) that
+          # was never actually coded until now.
+          image: ghcr.io/adamastorx/api:e26a01e0ce2796a8b3c0124f249bf2f7878e6a61
           ports:
             - name: http
               containerPort: 8080
