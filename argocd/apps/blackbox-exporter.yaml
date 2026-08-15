@@ -154,6 +154,16 @@ spec:
                 preferred_ip_protocol: "ip4"
                 tls_config:
                   ca_file: /etc/blackbox-ca/ca.crt
+            # backlog #42: Kafka has zero Prometheus metrics of its own
+            # (no JMX exporter/sidecar deployed -- adding one is real,
+            # separate infra scope, not needed just to answer "is the
+            # broker reachable"). A plain TCP connect against the real
+            # broker Service/port answers exactly that question, reusing
+            # this already-deployed, already-proven prober instead of
+            # standing up a second metrics surface for one boolean.
+            tcp_connect:
+              prober: tcp
+              timeout: 5s
   destination:
     server: https://kubernetes.default.svc
     namespace: blackbox-exporter

@@ -471,6 +471,30 @@ spec:
                 target_label: instance
               - target_label: __address__
                 replacement: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
+          # backlog #42: Kafka's own broker/topic availability, direct --
+          # a real TCP connect against the broker Service, independent of
+          # whether api/workers happen to be receiving traffic at the
+          # time (the gap chaos scenario 1 originally found:
+          # ApiHighErrorRate needs 5m of sustained real error rate, which
+          # a brief outage under low/manual traffic never used to
+          # accumulate -- #45's permanent traffic later closed that
+          # specific gap for THIS cluster's actual failure mode, but a
+          # direct broker check still generalizes further, kept as
+          # real, deliberate defense-in-depth per #42's own note).
+          - job_name: blackbox-kafka-tcp
+            metrics_path: /probe
+            params:
+              module: [tcp_connect]
+            static_configs:
+              - targets:
+                  - kafka.kafka.svc.cluster.local:9092
+            relabel_configs:
+              - source_labels: [__address__]
+                target_label: __param_target
+              - source_labels: [__param_target]
+                target_label: instance
+              - target_label: __address__
+                replacement: blackbox-exporter.blackbox-exporter.svc.cluster.local:9115
           # ArgoCD's own metrics (backlog #118, staff review 2026-08-09
           # §7.8) -- was never scraped at all, confirmed live before
           # this change (zero argocd_* series in Prometheus). Static
@@ -1131,13 +1155,47 @@ spec:
                   # what a one-time human curl would eventually notice
                   # anyway, just faster.
                   - alert: BlackboxProbeFailing
-                    expr: probe_success{job=~"blackbox-.*"} == 0
+                    # job!="blackbox-kafka-tcp": that target gets its own
+                    # dedicated KafkaBrokerUnavailable alert below --
+                    # mechanically this wildcard would already match it
+                    # too (same probe_success==0 signal), but this
+                    # alert's own summary/description assume a real
+                    # public-edge HTTP target (Ingress/TLS/Traefik), which
+                    # would be actively misleading guidance for a Kafka
+                    # broker being unreachable -- excluded rather than
+                    # reused, so the runbook a responder actually gets
+                    # matches the real failure.
+                    expr: probe_success{job=~"blackbox-.*", job!="blackbox-kafka-tcp"} == 0
                     for: 5m
                     labels:
                       severity: critical
                     annotations:
                       summary: "A real public-edge probe has failed for 5m"
                       description: "probe_success is 0 for {{ $labels.instance }} (job {{ $labels.job }}) for 5m -- a real HTTP probe through the actual Ingress/TLS/routing chain, not a synthetic check. Reproduce directly: `curl --cacert adamastorx-ca.crt {{ $labels.instance }}` (add `-u blackbox:<key>` for the blackbox-http-2xx-auth job) and compare against what the failing module expects (2xx, or a real 401 for blackbox-http-401-expected). Check `kubectl get pods -n blackbox-exporter` and Traefik/cert-manager health before assuming the target service itself is down -- this probe crosses more real infrastructure (DNS via hostAliases, TLS termination, Ingress routing) than the target's own health check does."
+
+                  # backlog #42: Kafka's own broker availability, direct --
+                  # a real TCP connect against the broker Service,
+                  # independent of api/workers' own downstream error
+                  # rates (the gap chaos scenario 1 originally found: a
+                  # brief outage under low/manual traffic never used to
+                  # sustain 5m of ApiHighErrorRate; #45's permanent
+                  # traffic closed that specific gap for this cluster's
+                  # actual failure mode, kept here anyway as real,
+                  # deliberate defense-in-depth per #42's own note --
+                  # generalizes to a brief-outage shape this cluster
+                  # doesn't currently produce but could). Separate alert
+                  # from BlackboxProbeFailing (see that alert's own
+                  # comment) since a Kafka-down page needs materially
+                  # different investigative guidance than a public HTTP
+                  # endpoint does.
+                  - alert: KafkaBrokerUnavailable
+                    expr: probe_success{job="blackbox-kafka-tcp"} == 0
+                    for: 2m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "Kafka broker unreachable for 2m"
+                      description: "A real TCP connect to kafka.kafka.svc.cluster.local:9092 has failed for 2m -- shorter `for` than the public-edge probes above (2m vs 5m) since every real producer/consumer in this cluster (api, workers, clinvar-service, watchlist-service, market-data-ingestor, news-ingestor, sentiment-analyzer, aggregator) depends on this one broker, no fallback. Check `kubectl get pods -n kafka` first (a real pod restart/CrashLoopBackOff is the most common real cause seen in this project's own history); `kubectl logs -n kafka kafka-controller-0` for the actual broker-side error if the pod looks healthy; confirm the real topic list with `kafka-topics.sh --bootstrap-server localhost:9092 --list` via `kubectl exec` if the broker answers but a specific topic seems to be the real problem instead of broker-wide unavailability."
 
                   # backlog #91: the one SLO a streaming pipeline actually
                   # needs -- freshness, not uptime. aggregator_price_freshness_seconds
