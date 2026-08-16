@@ -200,6 +200,36 @@ provider, abort/promote, selfHeal non-interaction) is proven against
 this exact codebase; a human merging this should do one real image bump
 afterward and watch it, the same as any other first deploy.
 
+## Drill log (backlog #136, M16 ADR 0043)
+
+Recurring, dated entries — each a real, deliberately-triggered exercise
+of the mechanism above against the live cluster, not a rerun of the
+same 2026-07-30 demo. Alternates clean-promotion and induced-fault runs
+so the abort path stays exercised too, not just the happy path.
+
+### Drill 1 — clean promotion (2026-08-16)
+
+Trigger: a pod-template annotation touch on `api`'s Rollout
+(`platform`#182, `adamastorx.io/canary-drill: "2026-08-16-drill-1-clean-promotion"`)
+— no functional change, only enough to force a real new ReplicaSet
+revision through the existing canary + `api-slo-check` analysis gate.
+
+- Canary pod (`api-687484c549-znqls`) created: `21:14:48Z`.
+- `setWeight: 50` reached, both pods `1/1`, `Rollout` phase `Paused`:
+  `21:15:48Z`.
+- Analysis (`api-687484c549-5-2`) started `21:16:15Z`, `Status: Successful`.
+- `Rollout` phase `Healthy`, `Completed`: `21:17:48Z`.
+- **Elapsed, pod creation → Healthy: 3m00s** — matches the #46 baseline
+  (2m56s) closely; no real divergence.
+- Previous pod (`api-5b46c668c7-fr46w`, 38h old at drill start) never
+  restarted during the window; its ReplicaSet scaled to 0 cleanly once
+  the new one completed. `api` Application stayed `Synced`/`Healthy`
+  throughout — no selfHeal fight, matching the original 2026-07-30
+  finding.
+- No ambiguity from the known whole-Service-scrape limitation this run
+  — both pods were healthy and serving throughout, so aggregate vs.
+  per-pod isolation wasn't in question for this particular result.
+
 ## What this doesn't cover
 
 - `clinvar-service` stays a plain `Deployment` (backlog #46's own
