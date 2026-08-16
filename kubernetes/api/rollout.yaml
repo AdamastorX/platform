@@ -281,18 +281,7 @@ spec:
             # (4Gi limits.memory) already had real headroom for this --
             # checked before picking this number, not assumed.
             limits:
-              # backlog #136 drill 2 (M16, ADR 0043): TEMPORARY, deliberate
-              # fault -- reproduces the exact real #35 CrashLoopBackOff
-              # shape (cgroup-throttled during JVM cold start, missing the
-              # liveness probe's ~80s budget), same value #46's own
-              # original bad-path test used. Expected: canary pod never
-              # passes readiness, progressDeadlineAbort (180s) fires
-              # automatically, previous pod (real cpu: "1") stays
-              # undisturbed throughout. Reverted to the real value in a
-              # follow-up PR immediately after the abort is confirmed live
-              # -- this commit is not meant to reach a durable stable
-              # state. See docs/runbooks/canary.md's Drill log.
-              cpu: "500m"
+              cpu: "1"
               memory: 1024Mi
       volumes:
         - name: pyroscope-agent
