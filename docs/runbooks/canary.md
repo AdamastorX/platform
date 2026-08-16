@@ -230,6 +230,38 @@ revision through the existing canary + `api-slo-check` analysis gate.
   — both pods were healthy and serving throughout, so aggregate vs.
   per-pod isolation wasn't in question for this particular result.
 
+### Drill 2 — induced fault, automatic abort (2026-08-16)
+
+Trigger: a deliberate, labeled `limits.cpu: 500m` on `api`'s Rollout
+(`platform`#184, TEMPORARY, reverted in `platform`#185 immediately
+after) — the exact real #35 CrashLoopBackOff shape (cgroup-throttled
+JVM cold start, misses the liveness probe's ~80s budget).
+
+- Canary pod (`api-797544b9c6-h95b5`) created: `21:34:25Z`.
+- Real readiness/liveness failures observed via `kubectl describe pod`
+  events: `Readiness probe failed: ... context deadline exceeded`,
+  then `connection refused`, then `Killing: ... failed liveness probe,
+  will be restarted` — the pod never passed readiness at any point.
+- `Rollout` condition `Progressing: False`, message `"Rollout aborted
+  update to revision 6"`: `21:37:26Z`.
+- **Elapsed, pod creation → automatic abort: 3m01s** — an exact match
+  to #46's original bad-path finding (also 3m01s). No divergence.
+- Previous pod (`api-687484c549-znqls`) confirmed undisturbed the
+  entire time: `0` restarts, `1/1 Running` throughout. `api`
+  Application correctly went `Degraded` (matching the real aborted
+  Rollout state), same expected/correct behavior #46's original test
+  found.
+- Fault reverted (`platform`#185) once the abort was confirmed —
+  diff against the pre-drill commit is empty, a clean byte-for-byte
+  revert. The revert's spec exactly matched the already-stable
+  revision, so Argo Rollouts didn't even cut a new ReplicaSet for it;
+  ArgoCD re-synced clean, `Synced`/`Healthy`, zero residual risk.
+- No ambiguity from the whole-Service-scrape limitation here either —
+  the canary pod never received real traffic at all (never passed
+  readiness), so `progressDeadlineAbort` is what caught this, not the
+  Prometheus-based analysis — the same complementary-safety-net split
+  #46's own original finding described.
+
 ## What this doesn't cover
 
 - `clinvar-service` stays a plain `Deployment` (backlog #46's own
