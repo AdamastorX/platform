@@ -519,6 +519,29 @@ spec:
               - source_labels: [__meta_kubernetes_pod_container_port_name]
                 regex: metrics
                 action: keep
+        # No job_name: cert-manager here, and none needed (backlog #139,
+        # checked live before adding one, not assumed): cert-manager's 3
+        # pods (controller/cainjector/webhook) already carry a real
+        # `prometheus.io/scrape: "true"` / `prometheus.io/port: "9402"` /
+        # `prometheus.io/path: "/metrics"` annotation set (confirmed via
+        # `kubectl get pods -n cert-manager -o jsonpath=...`) and are
+        # already scraped, health "up", by this chart's own default
+        # annotation-driven `kubernetes-pods` job (this chart's default
+        # scrape_configs, not one of the explicit jobs in this
+        # extraScrapeConfigs block) -- confirmed live against a real
+        # running Prometheus (`/api/v1/query?query=
+        # certmanager_certificate_expiration_timestamp_seconds{name=
+        # "adamastorx-root-ca",namespace="cert-manager"}` already returns
+        # one real series today, job="kubernetes-pods"). The
+        # prometheus-network-policies/prometheus-server.yaml egress rule
+        # for the cert-manager namespace (port 9402) was already added
+        # ahead of need in backlog #50's original PR, anticipating exactly
+        # this default-job scrape path -- its own comment already named
+        # it. A second, explicitly-named `job_name: cert-manager` static
+        # target here would just double-scrape the same series under two
+        # job labels; RootCARotated below queries the metric directly by
+        # `name`/`namespace` (unique without needing a specific `job`
+        # label) rather than adding one.
         server:
           # backlog #114: found live 2026-08-07 -- no resources block on
           # the actual metrics-store/query pod, the largest real consumer
@@ -733,6 +756,12 @@ spec:
         #     today api is the only route with rate limiting, so in
         #     practice it is api-specific, but that stops being true the
         #     moment a second Ingress gets its own rate limit.
+        #   RootCARotated (backlog #139): cert-manager's adamastorx-root-ca
+        #     Secret changed content -- every TLS client of this cluster
+        #     (browsers, curl, blackbox-exporter's own probes) is about to
+        #     start rejecting the real, valid cert with "unknown CA" until
+        #     its local trust store is updated. See
+        #     observability/runbooks/RootCARotated.md.
         serverFiles:
           alerting_rules.yml:
             groups:
@@ -1265,6 +1294,77 @@ spec:
                     annotations:
                       summary: "ArgoCD Application {{ $labels.name }} has been out of sync for over 2 hours"
                       description: "argocd_app_info{name=\"{{ $labels.name }}\"} has reported sync_status!=\"Synced\" for 2h+ -- this is not one of the known-benign Applications (clinvar-postgresql/grafana/kafka/postgresql/redis: Bitnami-Secret regeneration; cilium, backlog #49: auto-generated Hubble mTLS certs in the cilium-ca/hubble-relay-client-certs Secrets regenerate on every helm template/helm install run and never byte-match git's rendered copy), so this is real, unexplained GitOps drift. Check `kubectl get application {{ $labels.name }} -n argocd -o json` for the real resource-level diff. See backlog #118 for the real prometheus/PVC-resize incident this alert was built to catch."
+
+                  # Root CA rotation (backlog #139, real incident found live
+                  # 2026-08-16): cert-manager's adamastorx-root-ca Secret
+                  # silently rotated during backlog #49's Cilium cluster
+                  # rebuild (2026-08-10) with zero alert -- a human only
+                  # found out 6 days later via a broken visualizer UI and a
+                  # TLS "unknown CA" error (every locally-trusted CA copy,
+                  # /usr/local/share/ca-certificates/ and each browser's own
+                  # store, silently stopped matching the live Secret's real
+                  # fingerprint). certmanager_certificate_expiration_timestamp_seconds
+                  # for this cert is expected to stay perfectly static for
+                  # its full 10y Duration (Renewal Time a decade out,
+                  # confirmed live via `kubectl describe certificate -n
+                  # cert-manager adamastorx-root-ca`) -- any change to its
+                  # value is itself the signal a real reissue happened, so
+                  # changes()>0 is the right primitive here, not a threshold
+                  # on an expiry date (backlog #139's own AC states this
+                  # explicitly).
+                  #
+                  # No `job` label in the selector: found live before
+                  # writing this expression, not assumed -- cert-manager is
+                  # already scraped by this chart's own default
+                  # annotation-driven kubernetes-pods job (see
+                  # extraScrapeConfigs' own comment above this rule's
+                  # scrape target), so its real `job` label is
+                  # "kubernetes-pods", not "cert-manager". `name`/
+                  # `namespace` alone already select exactly one real
+                  # series (confirmed live via /api/v1/query), so no `job`
+                  # filter is needed.
+                  #
+                  # severity: critical, for: 0m -- unlike this file's
+                  # error-rate rules, there is no legitimate transient case
+                  # to debounce against (a root CA's content has no reason
+                  # to change outside an actual reissue) and a rotation
+                  # breaks every TLS client of this cluster instantly and
+                  # silently -- exactly this incident's own real impact --
+                  # worth paging on the first evaluation. changes(...[1h])
+                  # keeps reading >0 for up to an hour after a real
+                  # rotation regardless (the change stays inside the
+                  # lookback window), so a 0m `for` doesn't introduce
+                  # flapping.
+                  #
+                  # Verified live, NOT via a forced real rotation: deleting
+                  # the live Secret to force cert-manager to reissue would
+                  # recreate backlog #139's own incident for real (breaks
+                  # every local client's TLS trust again, requiring a human
+                  # to redo update-ca-certificates + browser NSS
+                  # re-import) -- deliberately not done. What IS verified
+                  # live: the expression evaluates cleanly against real
+                  # data with no error, matching exactly one series, and
+                  # reads changes(...[1h])==0 today (no rotation since this
+                  # alert shipped). See this item's own PR description for
+                  # the full record.
+                  #
+                  # Runbook: observability/runbooks/RootCARotated.md
+                  # (parallel PR, observability-engineer persona, backlog
+                  # #139) -- documents the real remediation this incident
+                  # used (regenerate platform/adamastorx-ca.crt from the
+                  # live Secret, re-run update-ca-certificates, re-import
+                  # into each browser's own trust store). Referenced here
+                  # even though that file may not exist at the exact
+                  # moment this PR lands -- expected, given the two PRs
+                  # land in parallel.
+                  - alert: RootCARotated
+                    expr: changes(certmanager_certificate_expiration_timestamp_seconds{name="adamastorx-root-ca", namespace="cert-manager"}[1h]) > 0
+                    for: 0m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "cert-manager's adamastorx-root-ca was reissued -- every TLS client's local trust is now stale"
+                      description: "certmanager_certificate_expiration_timestamp_seconds{name=\"adamastorx-root-ca\",namespace=\"cert-manager\"} changed value within the last hour -- a root CA is expected to be perfectly static for its full 10y Duration, so any change means a real reissue happened (deliberate rotation, or a rebuild re-bootstrapping cert-manager from scratch, as backlog #49's did on 2026-08-10). Every client of this cluster's TLS (browsers, curl, blackbox-exporter's own probes) will start rejecting the new, valid cert with 'unknown CA' until its local trust store is updated. See observability/runbooks/RootCARotated.md for the real remediation (regenerate platform/adamastorx-ca.crt from the live Secret, re-run update-ca-certificates, re-import into each browser's own NSS/trust store)."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus

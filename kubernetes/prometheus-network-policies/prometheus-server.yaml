@@ -269,6 +269,15 @@ spec:
     # pods (controller/cainjector/webhook), which share
     # app.kubernetes.io/instance: cert-manager but differ in
     # app.kubernetes.io/name.
+    #
+    # backlog #139 (2026-08-16): re-confirmed live that this rule is the
+    # reason the assumption in its own comment above actually holds --
+    # cert-manager's 3 pods carry a real prometheus.io/scrape annotation
+    # set and are scraped (job="kubernetes-pods", health "up") specifically
+    # because this egress rule already lets prometheus-server reach them
+    # on 9402. RootCARotated (argocd/apps/prometheus.yaml) now depends on
+    # that scrape staying up -- no change needed here, this rule already
+    # covers it; noted so a future reader doesn't have to re-derive why.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: cert-manager
