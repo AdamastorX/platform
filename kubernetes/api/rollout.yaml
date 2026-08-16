@@ -95,6 +95,17 @@ spec:
     metadata:
       labels:
         app: api
+      annotations:
+        # backlog #136 (ADR 0043, M16): a deliberate, dated canary drill
+        # trigger -- no functional change to the pod, only a pod-template
+        # touch, which is enough on its own to force Argo Rollouts to cut
+        # a real new ReplicaSet revision and run the full canary +
+        # analysis cycle. Declared as exactly what it is (a drill), not
+        # disguised as a real change -- the point is generating a real,
+        # dated operational event against the existing #46 mechanism, not
+        # shipping new behavior. Outcome recorded in
+        # docs/runbooks/canary.md's "Live verification" section.
+        adamastorx.io/canary-drill: "2026-08-16-drill-1-clean-promotion"
     spec:
       # backlog #57: fetches the real, published Pyroscope Java agent jar
       # (grafana/pyroscope-java v2.8.0, github release asset) into a
