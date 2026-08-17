@@ -23,3 +23,15 @@ jobs:
       - uses: renovatebot/github-action@v46.2.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          # backlog #98 real bug, found live 2026-08-17: both scheduled
+          # runs since this workflow shipped (2026-08-10, 2026-08-17)
+          # completed "success" with zero PRs opened, across every repo
+          # -- the job log's own output shows why: "WARN: No repositories
+          # found - did you want to run with flag --autodiscover?". The
+          # action never told Renovate which repository to scan; it
+          # doesn't infer this from GITHUB_REPOSITORY on its own the way
+          # the original config assumed. RENOVATE_REPOSITORIES is
+          # renovatebot/github-action's own documented fix for exactly
+          # this shape of silent no-op.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
