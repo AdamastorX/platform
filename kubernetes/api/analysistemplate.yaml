@@ -26,13 +26,25 @@
 # http_server_requests_seconds_bucket series, with the dashboard's
 # `$__rate_interval` template variable replaced by a literal 5m (the
 # same window ApiHighErrorRate already uses, for consistency, not a
-# new number). The 1000ms threshold below is genuinely new -- stated
-# openly, not disguised as reused, because nothing to reuse exists yet:
-# picked as a generous ceiling for a Spring Boot CRUD path over
-# Postgres/Redis on this single-node dev cluster, the same "not tuned
-# against a real historical distribution yet" caveat ADR 0020 already
-# used for its own thresholds. Revisit once a real p95 distribution
-# exists to tune against.
+# new number).
+#
+# backlog #137 (2026-08-17, PRELIMINARY -- see ADR 0020's own dated
+# addendum for the full numbers and reasoning): 500ms replaces the
+# original 1000ms placeholder. Derived from real retained Prometheus
+# data (30d retention live since 2026-08-07, backlog #94), not picked
+# in the abstract -- but the naive full-window p95/p99 was found
+# contaminated by two real, already-documented incident days (#122's
+# OOM/canary saga, 2026-08-12/13, real p95 up to 4.40s those days) that
+# don't represent healthy steady state. The clean post-incident window
+# (2026-08-14 00:00Z onward, ~101k real samples) gives p95=0.148s,
+# p99=0.247s -- 500ms is roughly 2x that real clean p99, generous
+# enough not to false-positive a canary on legitimate variance this
+# short window hasn't seen yet, while still meaningfully tighter than
+# the old placeholder and comfortably catching real degradation of the
+# incident-day shape. Explicitly PRELIMINARY: only ~4 clean days behind
+# this number. Final reconciliation once #94's full 30-day window
+# closes (~2026-09-06) is real remaining scope, not silently treated as
+# done -- see ADR 0020's addendum.
 #
 # interval: 30s on both metrics -- Prometheus's own scrape_interval for
 # the `api` job is 60s (confirmed live against the running
@@ -81,7 +93,7 @@ spec:
       interval: 30s
       count: 4
       failureLimit: 0
-      successCondition: result[0] <= 1.0
+      successCondition: result[0] <= 0.5
       provider:
         prometheus:
           address: http://prometheus-server.prometheus.svc.cluster.local
