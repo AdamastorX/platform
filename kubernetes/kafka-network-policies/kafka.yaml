@@ -1,0 +1,180 @@
+# backlog #126: kafka's own default-deny + explicit allows -- the
+# namespace #50's own item named as "the one that matters and should
+# go first" (ADR 0012: broker is PLAINTEXT, no auth; carries every
+# event in the system; egress *to* it was already constrained from
+# each client, but its own ingress was wide open to any pod in the
+# cluster). Real, derived from a live `hubble observe --namespace kafka`
+# capture (2026-08-20/21) against the running cluster, cross-checked
+# against each real client's own source/config -- not guessed from the
+# architecture doc, per #50's own established method.
+#
+# Applying ANY CiliumNetworkPolicy that selects a pod switches that pod
+# from Cilium's default-allow into default-deny for exactly this
+# endpoint -- every real flow this pod needs has to be named here, in
+# one shot, not added incrementally while traffic is already cut.
+#
+# No rules.dns anywhere in this file, deliberately (backlog #50's real,
+# live DNS-proxy incident) -- the plain L3/L4-only DNS rule below
+# matches the same now-established safe pattern every other policy in
+# this project already uses.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  ingress:
+    # kubelet's own readiness probe (StatefulSet's tcpSocket probe on
+    # the "controller" port) -- confirmed live via the StatefulSet spec
+    # itself, not guessed from the port name: readinessProbe.tcpSocket.port
+    # == "controller" == containerPort 9093. Real, observed source
+    # identity: reserved:host + reserved:kube-apiserver (this cluster's
+    # single-node kubelet), not another Kafka client -- Cilium's `host`
+    # entity is the correct selector, same pattern workers.yaml already
+    # established for its own kubelet probe.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "9093"
+              protocol: TCP
+    # Same-namespace traffic (the chart's own topic-provisioning Job,
+    # backlog #95, and any future kafka-controller replica in a
+    # same-release scale-up) -- no live provisioning Job pod exists at
+    # capture time to name an exact label from (it already ran and was
+    # cleaned up), so this is a same-namespace allow rather than a
+    # guessed job-name label, deliberately broader than the per-client
+    # rules below for that one stated reason.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kafka
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+            - port: "9093"
+              protocol: TCP
+            - port: "9094"
+              protocol: TCP
+    # api -> Kafka (work-items produce/consume, ADR 0010/0011). Real,
+    # observed: api/api-... -> kafka/kafka-controller-0:9092.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: api
+            app: api
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # workers -> Kafka (work-items consume, #35's own producer/consumer
+    # pair). Real, observed: workers/workers-... -> kafka:9092. workers
+    # is real but currently scaled to 0 (KEDA, backlog #113) -- labels
+    # taken from the live Deployment's own pod template, not a guess.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: workers
+            app: workers
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # watchlist-service -> Kafka (second independent consumer group on
+    # clinvar.ingestion.completed, ADR 0026/backlog #53). Real, observed:
+    # watchlist/watchlist-service-... -> kafka:9092.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: watchlist
+            app: watchlist-service
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # aggregator -> Kafka (Kafka Streams: consumes stock.price.tick +
+    # news.sentiment.scored, produces aggregates, its own changelog
+    # topics, backlog #81). Real, observed: aggregator/aggregator-... ->
+    # kafka:9092.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: aggregator
+            app: aggregator
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # sentiment-analyzer -> Kafka (consumes news.article.published,
+    # produces news.sentiment.scored, backlog #80). Real, observed:
+    # sentiment-analyzer/sentiment-analyzer-... -> kafka:9092.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: sentiment-analyzer
+            app: sentiment-analyzer
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # market-data-ingestor -> Kafka (produces stock.price.tick, backlog
+    # #78). Real, observed: market-data-ingestor/market-data-ingestor-...
+    # -> kafka:9092.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: market-data-ingestor
+            app: market-data-ingestor
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # news-ingestor -> Kafka (produces news.article.published, backlog
+    # #79). Real, observed: news-ingestor/news-ingestor-... -> kafka:9092
+    # (low-frequency, one real flow in a 3000-event capture window --
+    # a real client, just not a chatty one).
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: news-ingestor
+            app: news-ingestor
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # keda-operator -> Kafka (the ScaledObject's own Kafka trigger,
+    # backlog #63, polls real consumer-group lag directly against the
+    # broker to compute desired replicas -- a different path from
+    # Prometheus scraping workers' own exported lag metric). Real,
+    # observed: keda/keda-operator-... -> kafka:9092.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: keda
+            app.kubernetes.io/name: keda-operator
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+    # blackbox-exporter -> Kafka (the blackbox-kafka-tcp real TCP probe,
+    # backlog #93 -- a genuinely real client this item's own AC didn't
+    # originally name, found only by the live hubble capture, not
+    # assumed from the architecture doc). Real, observed:
+    # blackbox-exporter/blackbox-exporter-... -> kafka:9092.
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: blackbox-exporter
+            app.kubernetes.io/name: prometheus-blackbox-exporter
+      toPorts:
+        - ports:
+            - port: "9092"
+              protocol: TCP
+  egress:
+    # DNS, explicitly, everywhere -- backlog #50's own named footgun.
+    # Same plain L3/L4-only rule every other policy in this project
+    # already uses.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
