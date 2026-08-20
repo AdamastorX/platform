@@ -1,0 +1,34 @@
+# backlog #126: kafka namespace's real NetworkPolicies -- #50's own
+# item named this as "the one that matters and should go first" (ADR
+# 0012: PLAINTEXT broker, no auth, carries every event in the system,
+# ingress previously wide open to any pod in the cluster). Same
+# discipline as clinvar-network-policies.yaml/api-network-policies.yaml/
+# workers-network-policies.yaml: real observed Hubble flows
+# cross-checked against each real client's own source/config, not
+# guessed from the architecture doc.
+#
+# Deliberately NOT auto-synced on first apply, same reasoning as the
+# other three network-policy batches -- a default-deny ingress policy
+# on the namespace every other real service depends on gets a manual
+# first sync plus live verification (cilium-dbg endpoint list,
+# policy-enabled: both, real reconnects from every named client), not
+# blind automated enforcement the moment this merges.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kafka-network-policies
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AdamastorX/platform
+    targetRevision: main
+    path: kubernetes/kafka-network-policies
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kafka
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
