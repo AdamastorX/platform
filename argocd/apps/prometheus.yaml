@@ -1365,6 +1365,60 @@ spec:
                     annotations:
                       summary: "cert-manager's adamastorx-root-ca was reissued -- every TLS client's local trust is now stale"
                       description: "certmanager_certificate_expiration_timestamp_seconds{name=\"adamastorx-root-ca\",namespace=\"cert-manager\"} changed value within the last hour -- a root CA is expected to be perfectly static for its full 10y Duration, so any change means a real reissue happened (deliberate rotation, or a rebuild re-bootstrapping cert-manager from scratch, as backlog #49's did on 2026-08-10). Every client of this cluster's TLS (browsers, curl, blackbox-exporter's own probes) will start rejecting the new, valid cert with 'unknown CA' until its local trust store is updated. See observability/runbooks/RootCARotated.md for the real remediation (regenerate platform/adamastorx-ca.crt from the live Secret, re-run update-ca-certificates, re-import into each browser's own NSS/trust store)."
+
+                  # backlog #125: kube-state-metrics has exported
+                  # kube_pod_container_status_restarts_total/
+                  # _last_terminated_exitcode/_waiting_reason since #92
+                  # (2026-08-07), scraped and never alerted on -- the
+                  # exact class of gap #85/#86 each hit once and fixed
+                  # with a bespoke per-service liveness indicator (real
+                  # and correct for those two services, zero coverage for
+                  # the other ~25 workloads). Two rules, not one: a
+                  # restart-rate alert (catches a burst in progress,
+                  # regardless of cause) and a terminal-state alert
+                  # (catches CrashLoopBackOff and a real OOM kill
+                  # specifically). Threshold picked against this
+                  # cluster's real observed history, not a round number:
+                  # mimir's own known, already-tracked (backlog #135)
+                  # chronic OOM runs ~7 restarts/24h (~0.3/h) confirmed
+                  # live via increase(...[24h]); real crash-loop bursts
+                  # this project has actually hit run far hotter --
+                  # backlog #122's api OOM (70+ restarts/41h, ~1.7/h) and
+                  # #140's market-data-ingestor burst (43/~2h, ~21/h).
+                  # "> 3 in 1h" sits comfortably above mimir's steady
+                  # background rate and comfortably below both real
+                  # incident shapes.
+                  - alert: WorkloadRestartingFrequently
+                    expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "{{ $labels.namespace }}/{{ $labels.pod }} has restarted more than 3 times in the last hour"
+                      description: "kube_pod_container_status_restarts_total for {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) increased by {{ $value }} in the last hour -- above mimir's own known chronic-OOM background rate (~0.3/h, backlog #135), in range with real crash-loop bursts this project has hit before (#122, #140). Check `kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}` for the real terminated reason/exit code before assuming cause. See observability/runbooks/WorkloadRestartingFrequently.md."
+
+                  # Two real signals, one alert, deliberately not two:
+                  # CrashLoopBackOff (a pod stuck restarting *right now*,
+                  # the #35 shape) and exitcode==137 (a real OOM kill).
+                  # exitcode is used instead of
+                  # reason="OOMKilled" -- confirmed live, not assumed,
+                  # that this cluster's kubelet does not reliably set
+                  # that string: mimir's own real, confirmed-OOM
+                  # container (container_memory_working_set_bytes
+                  # cycling against its limit, exitCode 137) reports
+                  # kube_pod_container_status_last_terminated_reason as
+                  # the generic "Error", never "OOMKilled" -- an alert
+                  # keyed on the reason string alone would never fire on
+                  # this cluster's own real OOM pattern. The numeric exit
+                  # code doesn't have that gap.
+                  - alert: ContainerCrashLoopOrOOMKilled
+                    expr: (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1) or (kube_pod_container_status_last_terminated_exitcode == 137)
+                    for: 2m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "{{ $labels.namespace }}/{{ $labels.pod }} is in CrashLoopBackOff or was OOM-killed"
+                      description: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) is either stuck in CrashLoopBackOff right now, or its container's last termination was a real OOM kill (exit code 137) -- checked directly via the exit code, not the reason string, since this cluster's kubelet reports OOM kills as the generic reason \"Error\", not \"OOMKilled\" (confirmed live against mimir's own known chronic OOM, backlog #135). Check `kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}` and real memory usage (`container_memory_working_set_bytes`) against the container's own limit before assuming this is new. See observability/runbooks/ContainerCrashLoopOrOOMKilled.md."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
