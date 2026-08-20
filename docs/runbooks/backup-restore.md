@@ -38,6 +38,19 @@ what existed before). Backing them up would be spending real effort
 protecting data that isn't worth protecting for this project. Not
 addressed further here.
 
+**`clinvar-service-refdata` (namespace `clinvar`) is explicitly out of
+scope too, for a different reason — confirmed by reading the code
+(backlog #123), not assumed.** `app/paths.py`'s `ClinVarRefdataPaths`
+holds only the downloaded VCF/TBI files for the current and previous
+ClinVar release, a re-ingestible cache of the real upstream source
+(`settings.clinvar_source_vcf_url`/`clinvar_source_tbi_url`), not a
+second copy of source-of-truth data — `clinvar-postgresql` above
+already owns the real provenance record. Losing this PVC costs one
+real ingestion run (~7 minutes against the current ~4.46M-record VCF,
+backlog #122) to regenerate, triggered via `POST
+/internal/clinvar/ingest`, not data. `flannel-restore.md`'s own PVC
+inventory table is updated to state this as settled, not "unconfirmed."
+
 ## Decision: mechanism
 
 A daily `pg_dump` `CronJob` per instance, each writing to its own
