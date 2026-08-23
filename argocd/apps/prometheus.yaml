@@ -977,6 +977,62 @@ spec:
                       summary: "ClinVar ingestion ran several times longer than its ~7-minute real-data baseline"
                       description: "The most recent ClinVar ingestion run's observed duration is over 1200s (20m, ~2.9x the real ~420s baseline measured from two independent full-scale runs). See ADR 0020's SLO table and its 2026-08-14 addendum."
 
+                  # ClinVarInvalidationLag (backlog #29, already named in
+                  # ADR 0020's own addendum -- this is that alert's first
+                  # real implementation, not an update to a stale one: it
+                  # never actually shipped before now). ADR 0018's
+                  # original design ("an explicit invalidation-job-failure
+                  # counter, or a served cache hit whose release is older
+                  # than the latest completed ingestion") was overtaken by
+                  # ADR 0019's rescope before it was ever built --
+                  # clinvar-service now owns the diff/publish step
+                  # end-to-end and api just drains a Kafka consumer, so
+                  # the real failure surface is "did clinvar-service's
+                  # publish happen, did api's consumer drain it", not
+                  # "did api recompute the diff correctly".
+                  #
+                  # **A real, confirmed gap, not silently worked around**:
+                  # clinvar-service's own Kafka producer
+                  # (services/clinvar-service/app/kafka_producer.py) has
+                  # no delivery-success/failure Prometheus metric of its
+                  # own -- confluent-kafka's `produce()`/`flush()` don't
+                  # raise on an async delivery failure, and the delivery
+                  # callback only logs, so a silent publish failure would
+                  # still leave the ingestion job marked
+                  # `clinvar_ingestion_jobs_total{status="succeeded"}`.
+                  # There is no clean, separate "publish happened" signal
+                  # to alert on today -- adding one is a services-repo
+                  # code change outside this platform-repo item's scope
+                  # (tracked as a new gap, see this PR's description).
+                  # This expression instead compares the one real signal
+                  # each side already has: clinvar-service's own
+                  # succeeded-ingestion count (a proxy for "a publish was
+                  # attempted") against api's real, confirmed-live
+                  # `spring_kafka_listener_seconds_count` timer for this
+                  # exact listener (`messaging_source_name="clinvar.ingestion.completed"`,
+                  # `error="none"` for a successfully processed message) --
+                  # live-verified equal at 2/2 on this cluster today. A
+                  # sustained gap between the two, whatever the underlying
+                  # cause (publish never sent, or sent but never
+                  # consumed), is exactly the correctness failure this
+                  # alert exists to catch -- api serving a stale cached
+                  # answer with nothing invalidating it. `for: 15m`, the
+                  # same tolerance ADR 0018's original design already
+                  # named for this exact signal, long enough that a
+                  # normal few-second Kafka propagation delay never
+                  # trips it.
+                  - alert: ClinVarInvalidationLag
+                    expr: >-
+                      increase(clinvar_ingestion_jobs_total{job="clinvar-service", status="succeeded"}[1h])
+                      >
+                      increase(spring_kafka_listener_seconds_count{job="api", messaging_source_name="clinvar.ingestion.completed", error="none"}[1h])
+                    for: 15m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "ClinVar cache-invalidation pipeline lagging -- api may be serving stale variant answers"
+                      description: "clinvar-service has completed more successful ingestions in the last hour than api's clinvar.ingestion.completed consumer has successfully processed -- either the Kafka publish never happened or api's consumer never drained it. Until this clears, api may serve a cached variant-annotation answer that clinvar-service has already reclassified. Check clinvar-service's logs for a delivery-callback error (services/clinvar-service/app/kafka_producer.py) and api's consumer group lag/DLQ (com.adamastorx.api.clinvar.ClinVarCacheInvalidationConsumerConfig). See ADR 0019/0020 and this alert's runbook."
+
                   # watchlist-service DLQ depth (backlog #53's own AC: "a
                   # metric and an alert" on subscriber dead-lettering).
                   # watchlist_delivery_dlq_depth is a real-time gauge

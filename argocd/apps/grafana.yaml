@@ -2079,6 +2079,434 @@ spec:
                     }
                   ]
                 }
+            clinvar-service-golden-signals:
+              json: |
+                {
+                  "uid": "clinvar-service-golden-signals",
+                  "title": "clinvar-service \u2014 Golden Signals & Variant-Lookup Cache Pattern (backlog #29)",
+                  "description": "Two signal sources per backlog #29's rescoped AC (ADR 0019/0020): clinvar-service's own golden signals (#21a's metrics -- lookup latency/count, ingestion duration/freshness) alongside api's existing workItemCache/variantAnnotationCache Redis hit/miss/error view (ADR 0016/0018), plus the project's first genuinely skewed cache access pattern (ADR 0018) and its invalidation-on-write behavior (#26). Every metric plotted below was confirmed as a real, non-empty live series against this cluster's own Prometheus before this dashboard was written (not assumed from code) -- two panels (hot-keys-vs-long-tail, cache-entry-age) are left as explicitly-labeled gaps instead, since no real metric backs either one live today; see those panels' own descriptions and this dashboard's PR for the full account.",
+                  "tags": [
+                    "golden-signals",
+                    "clinvar-service",
+                    "api",
+                    "cache"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "title": "clinvar-service \u2014 Traffic: lookup rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(clinvar_lookup_duration_seconds_count{job=\"clinvar-service\"}[$__rate_interval]))",
+                          "legendFormat": "lookups/s"
+                        }
+                      ],
+                      "description": "GET /internal/clinvar/lookup call rate from clinvar-service's own perspective (#21a). Confirmed live: 84,878 cumulative requests observed on this cluster before this panel was written."
+                    },
+                    {
+                      "id": 2,
+                      "title": "clinvar-service \u2014 Latency: p95 lookup duration",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum(rate(clinvar_lookup_duration_seconds_bucket{job=\"clinvar-service\"}[$__rate_interval])) by (le))",
+                          "legendFormat": "p95 lookup duration"
+                        }
+                      ],
+                      "description": "Real histogram_quantile(0.95, ...) over clinvar_lookup_duration_seconds_bucket (#21a) -- confirmed live at ~0.21s before this panel was written, well within the histogram's bucket range (unlike the ingestion-duration histogram below, whose real values exceed its own bucket ceiling -- see that panel)."
+                    },
+                    {
+                      "id": 3,
+                      "title": "clinvar-service \u2014 Errors: ingestion failure rate (lookup-side blocked on #21e)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "ops"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(clinvar_ingestion_jobs_total{job=\"clinvar-service\", status=\"failed\"}[$__rate_interval]))",
+                          "legendFormat": "ingestion jobs failed/s"
+                        }
+                      ],
+                      "description": "clinvar_ingestion_jobs_total{status=\"failed\"} is a real, live signal (#21a/#54). There is deliberately no lookup-side error-rate panel here: clinvar_lookup_duration_seconds (app/metrics.py) records latency only, with no status/outcome label -- backlog #21e names this exact gap and is still open, confirmed live (no status-labeled lookup counter exists in this cluster's /metrics today). Not built here against a metric name that doesn't exist; #21e is the right place for that panel once it ships."
+                    },
+                    {
+                      "id": 4,
+                      "title": "clinvar-service \u2014 Ingestion duration: average (not p95 -- see description)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "rate(clinvar_ingestion_duration_seconds_sum{job=\"clinvar-service\"}[$__rate_interval]) / clamp_min(rate(clinvar_ingestion_duration_seconds_count{job=\"clinvar-service\"}[$__rate_interval]), 1e-9)",
+                          "legendFormat": "avg ingestion duration"
+                        }
+                      ],
+                      "description": "Average (sum/count), deliberately not a percentile: clinvar_ingestion_duration_seconds_bucket's real bucket ceiling is 10s (prometheus_client's DEFAULT_BUCKETS, never widened for this histogram), but real ingestion runs take ~420-850s (confirmed live: 2 real runs, 853.34s total / 2 = ~427s average) -- every real sample lands in the +Inf bucket, so histogram_quantile(...) on this series returns NaN/+Inf, confirmed live before writing this panel. A real, stated instrumentation gap (the histogram's buckets were never sized for this metric's real range), not silently worked around -- average is the honest signal available today."
+                    },
+                    {
+                      "id": 5,
+                      "title": "clinvar-service \u2014 Ingestion in progress",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 16,
+                        "w": 6,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "blue",
+                                "value": 1
+                              }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "clinvar_ingestion_in_progress{job=\"clinvar-service\"}",
+                          "legendFormat": "in progress"
+                        }
+                      ],
+                      "description": "clinvar_ingestion_in_progress (#21a) -- 1 while an ingestion runs (admin-triggered or scheduled), 0 otherwise."
+                    },
+                    {
+                      "id": 6,
+                      "title": "clinvar-service \u2014 Freshness: successful ingestions (8d)",
+                      "type": "stat",
+                      "gridPos": {
+                        "x": 6,
+                        "y": 16,
+                        "w": 6,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "red",
+                                "value": null
+                              },
+                              {
+                                "color": "green",
+                                "value": 1
+                              }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "increase(clinvar_ingestion_jobs_total{job=\"clinvar-service\", status=\"succeeded\"}[8d])",
+                          "legendFormat": "successful ingestions, 8d"
+                        }
+                      ],
+                      "description": "Same real signal ClinVarIngestionFreshnessBreach alerts on (argocd/apps/prometheus.yaml) -- 0 means no successful ingestion completed in the last 8 days (the alert's own threshold), a direct visual of the freshness SLO from ADR 0020's table."
+                    },
+                    {
+                      "id": 7,
+                      "title": "clinvar-service \u2014 Ingestion jobs by outcome (8d)",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 16,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (status) (increase(clinvar_ingestion_jobs_total{job=\"clinvar-service\"}[8d]))",
+                          "legendFormat": "{{status}}"
+                        }
+                      ],
+                      "description": "clinvar_ingestion_jobs_total by status (#21a/#54) -- succeeded/failed/cancelled, each explicitly zero-initialized at process start (app/metrics.py) so all three series are always present, not just whichever has happened yet."
+                    },
+                    {
+                      "id": 8,
+                      "title": "api \u2014 workItemCache hit/miss/error rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 24,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "ops"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (result) (rate(cache_gets_total{job=\"api\", cache=\"work-items\"}[$__rate_interval]))",
+                          "legendFormat": "{{result}}"
+                        }
+                      ],
+                      "description": "ADR 0016's TTL-only work-item cache (cache.gets{cache=\"work-items\"}). Confirmed live and genuinely non-zero on this cluster: 2,057 cumulative hits, 45,212 cumulative misses -- the existing, unskewed baseline this dashboard's variant-annotation panel below contrasts against (ADR 0018)."
+                    },
+                    {
+                      "id": 9,
+                      "title": "api \u2014 variantAnnotationCache hit/miss/error rate",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 24,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "ops"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (result) (rate(cache_gets_total{job=\"api\", cache=\"variant-annotation\"}[$__rate_interval]))",
+                          "legendFormat": "{{result}}"
+                        }
+                      ],
+                      "description": "ADR 0018's invalidation-on-write variant cache (cache.gets{cache=\"variant-annotation\"}). Real, live, correctly-wired metric -- but confirmed flat at 0/0/0 (hit/miss/error) on this cluster today, and this is a genuine traffic-shape finding, not a broken panel: workload-generator's real synthetic variant-lookup traffic (generator/keys.py) is 100% rsID-based, and VariantLookupService's own javadoc states rsID lookups never call cache.get() (only clinvar-service's own lookup endpoint resolves an rsID; the cache is coordinate-keyed and is only read on a coordinate-based lookup, which nothing in this cluster currently issues). The metric will show real data the moment a coordinate-based /variants/lookup?chrom=...&pos=...&ref=...&alt=... call happens -- stated here rather than left to look like a silent bug."
+                    },
+                    {
+                      "id": 10,
+                      "title": "Variant-lookup access pattern: top-N hot keys vs. long tail (blocked -- no metric yet)",
+                      "type": "text",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 32,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {},
+                        "overrides": []
+                      },
+                      "targets": [],
+                      "options": {
+                        "mode": "markdown",
+                        "content": "**Stepping-stone toward #21 -- not yet a live panel.**\n\nADR 0018's own design for this exact view calls for a bounded, allow-listed label (~20 known high-traffic rsIDs plus an `other` bucket -- deliberately *not* a raw per-variant-ID label, which would be unbounded cardinality against ~3M ClinVar records). That bounded label does not exist in `api`'s code today -- confirmed live: `cache_gets_total{cache=\"variant-annotation\"}` carries only `cache`/`result` tags, no variant dimension at all (same finding as the panel to the left: rsID lookups bypass the cache-aside `get()` path entirely, so even a bounded label on that path wouldn't see 100% of real traffic without a second instrumentation point on the rsID path too).\n\nAdding it is a `services`-repo code change (a new bounded Counter label in `api`'s clinvar package, seeded from `workload-generator`'s own real `HOT_RSIDS` list) outside this platform-repo item's scope -- stated here as a real, open gap rather than built against an assumed metric name. See this PR's description."
+                      }
+                    },
+                    {
+                      "id": 11,
+                      "title": "Invalidation-event rate by reason",
+                      "type": "timeseries",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 32,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "ops"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (reason) (rate(cache_invalidations_total{job=\"api\", cache=\"variant-annotation\"}[$__rate_interval]))",
+                          "legendFormat": "{{reason}}"
+                        }
+                      ],
+                      "description": "cache.invalidations{cache=\"variant-annotation\", reason=...} (#26) -- distinct from cache.gets{result=hit|miss|error} by design, an invalidation-triggered eviction is neither a get nor a put. Confirmed live and real (currently reason=\"release-changed\" only -- the only reason value api's VariantInvalidationService emits today, since work-items' TTL expiry is passive and was never instrumented as a counted 'invalidation' event; grouping by reason is still the correct shape for when/if that changes). Stepping-stone toward #21: this rate feeds directly into the ClinVarInvalidationLag alert's reasoning (argocd/apps/prometheus.yaml)."
+                    },
+                    {
+                      "id": 12,
+                      "title": "Cache-entry-age distribution (blocked -- no metric yet)",
+                      "type": "text",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 40,
+                        "w": 24,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {},
+                        "overrides": []
+                      },
+                      "targets": [],
+                      "options": {
+                        "mode": "markdown",
+                        "content": "**Stepping-stone toward #21 -- not yet a live panel.**\n\nADR 0018 names this panel explicitly (\"sawtooth for work-item, right-skewed for variant lookups\") but no metric backs it on this cluster today, confirmed two ways: (1) no `redis_exporter` is deployed in this cluster (`kubectl get pods -A` has no such workload, confirmed live), so there is no per-key `TTL`/idle-time signal from Redis itself; (2) neither `WorkItemCacheService` nor `VariantAnnotationCacheService` (`services/api`) emits an application-level entry-age gauge of its own -- both only set a TTL on write, they never read one back.\n\nReal options going forward, neither built here: an app-level gauge sampling TTL (or the remaining fraction of it) on each get(), or deploying redis_exporter with its --check-keys flag against a bounded key pattern. Either is a real, separate change (services-repo code or a new platform Application) outside this item's scope -- stated as an open gap rather than built against an assumed metric name. See this PR's description."
+                      }
+                    }
+                  ]
+                }
             beyla-vs-manual:
               json: |
                 {
