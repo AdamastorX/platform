@@ -38,6 +38,16 @@ spec:
       # manylinux wheel, no compiler needed against this same
       # python:3.12-slim base) -- no init container, no PYTHONPATH
       # override, no pyroscope-deps volume needed anymore.
+      # backlog #142: pod-level defaults every container inherits. UID/GID
+      # 10001 matches this image's own baked-in USER (clinvar-service/
+      # Dockerfile) -- pinning the existing runtime identity at the
+      # Kubernetes API level, not changing it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: clinvar-service
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
@@ -67,6 +77,23 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          # backlog #142: readOnlyRootFilesystem needs no extra tmpfs mount
+          # here -- audited this module's own source (app/download.py,
+          # app/vcf_query.py, app/paths.py), not assumed: every real write
+          # this service makes (the weekly VCF download, tabix index
+          # rebuild) targets a path under CLINVAR_REFDATA_PATH below,
+          # which is the refdata PVC already mounted read-write. No other
+          # file write exists anywhere in this module's own code.
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
           # backlog #57: the image's own ENTRYPOINT (`uvicorn app.main:app
           # ...`) is untouched in the services repo -- overridden here at
           # the Kubernetes level only, wrapping the same call with a
