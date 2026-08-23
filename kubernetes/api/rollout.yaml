@@ -107,6 +107,19 @@ spec:
         # docs/runbooks/canary.md's "Live verification" section.
         adamastorx.io/canary-drill: "2026-08-16-drill-1-clean-promotion"
     spec:
+      # backlog #142: pod-level defaults every container inherits unless
+      # it overrides them below -- runAsNonRoot/seccompProfile are safe
+      # to set here since every container in this pod (the curl init
+      # container and the api container) already runs as a non-root user
+      # baked into its own image (see each container's own securityContext
+      # comment). No pod-level runAsUser/runAsGroup: the two containers
+      # have two different image-default UIDs (curl_user vs app's 10001),
+      # so each pins its own explicitly instead of one pod-wide value
+      # papering over that difference.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       # backlog #57: fetches the real, published Pyroscope Java agent jar
       # (grafana/pyroscope-java v2.8.0, github release asset) into a
       # shared emptyDir -- an unprivileged init-container/agent-injection
@@ -141,6 +154,26 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
+          # backlog #142: no explicit runAsUser/runAsGroup here, deliberately
+          # -- verified against the published curlimages/curl:8.11.1 image
+          # config (docker.io registry API, not guessed) that its baked-in
+          # default user is "curl_user", but that image publishes no stable
+          # numeric UID/GID to pin against the way this project's own
+          # Dockerfiles do (USER 10001). Leaving runAsUser/runAsGroup unset
+          # still gets a real non-root enforcement: runAsNonRoot (pod-level,
+          # inherited) makes the kubelet reject the pod outright if the
+          # image's own resolved UID were ever 0. The one write this
+          # container does (curl -o /pyroscope-agent/pyroscope.jar) targets
+          # the emptyDir below, which stays writable regardless of
+          # readOnlyRootFilesystem.
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
       containers:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
@@ -163,10 +196,32 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          # backlog #142: runAsUser/runAsGroup 10001 matches this image's
+          # own baked-in USER (services/Dockerfile, the shared Java build
+          # -- every Spring Boot module here already runs as this UID
+          # today; this is pinning the existing runtime identity at the
+          # Kubernetes API level, not changing it). readOnlyRootFilesystem
+          # needs the tmp emptyDir below: embedded Tomcat creates its own
+          # base/work directory under java.io.tmpdir (/tmp) on every
+          # startup regardless of whether this app serves JSPs/uploads,
+          # and Pyroscope's own JFR-format profiler (PYROSCOPE_FORMAT
+          # above) buffers snapshot files under /tmp before each upload.
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - name: pyroscope-agent
               mountPath: /pyroscope-agent
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           env:
             # backlog #57: JAVA_TOOL_OPTIONS is read automatically by any
             # `java` invocation (no ENTRYPOINT change needed, ADR 0009's
@@ -286,3 +341,14 @@ spec:
       volumes:
         - name: pyroscope-agent
           emptyDir: {}
+        # backlog #142: tmpfs (Memory-backed), not disk -- Tomcat's own
+        # work dir + Pyroscope's JFR snapshot buffering are both small and
+        # short-lived (a few MB at a time, never expected to approach
+        # sizeLimit), and tmpfs avoids adding real disk I/O for what's
+        # fundamentally scratch space. Counts against this container's own
+        # memory cgroup, not the node's disk -- sized well under the
+        # 1024Mi memory limit above.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
