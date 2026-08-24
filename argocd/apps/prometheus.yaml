@@ -519,6 +519,46 @@ spec:
               - source_labels: [__meta_kubernetes_pod_container_port_name]
                 regex: metrics
                 action: keep
+          # backlog #144 (staff review 2026-08-21/ADR 0044 §3): the
+          # observability stack's own backends were never scraped at all
+          # -- confirmed live before writing this, not assumed:
+          # count(loki_build_info)/count(tempo_build_info)/
+          # count(pyroscope_build_info) each returned zero series against
+          # the real running Prometheus. Deliberately scoped to only the
+          # three backends that survive #135's still-open Mimir decision
+          # (unconditional per ADR 0044 §3/backlog #144's AC) -- Mimir's
+          # own remote-write-failure arm is NOT built here, on purpose;
+          # see TelemetryBackendDown below and the runbook
+          # (observability/runbooks/TelemetryBackendDown.md) for why.
+          #
+          # All three get a real, stable ClusterIP Service in their own
+          # namespace (same shape as api/aggregator/clinvar-service/
+          # watchlist-service above), so static targets, not pod-role SD.
+          # Each `/metrics` endpoint and its real `<name>_build_info`
+          # series was confirmed live via the API server's own service
+          # proxy subresource before writing this job (`kubectl get --raw
+          # /api/v1/namespaces/<ns>/services/<svc>:<port>/proxy/metrics`),
+          # not assumed from the chart's docs alone:
+          #   loki:3100/metrics      -> loki_build_info      (confirmed)
+          #   tempo:3200/metrics     -> tempo_build_info     (confirmed)
+          #   pyroscope:4040/metrics -> pyroscope_build_info (confirmed)
+          # Ports match each chart's own real Service (`kubectl get svc`,
+          # not the chart's values.yaml comments): Loki's HTTP listener is
+          # 3100 (not Tempo's 3200, easy to mix up -- both charts default
+          # their gRPC/other ports differently), Tempo's is 3200, and
+          # Pyroscope's UI/API port is 4040.
+          - job_name: loki
+            metrics_path: /metrics
+            static_configs:
+              - targets: ['loki.loki.svc.cluster.local:3100']
+          - job_name: tempo
+            metrics_path: /metrics
+            static_configs:
+              - targets: ['tempo.tempo.svc.cluster.local:3200']
+          - job_name: pyroscope
+            metrics_path: /metrics
+            static_configs:
+              - targets: ['pyroscope.pyroscope.svc.cluster.local:4040']
         # No job_name: cert-manager here, and none needed (backlog #139,
         # checked live before adding one, not assumed): cert-manager's 3
         # pods (controller/cainjector/webhook) already carry a real
@@ -762,6 +802,13 @@ spec:
         #     start rejecting the real, valid cert with "unknown CA" until
         #     its local trust store is updated. See
         #     observability/runbooks/RootCARotated.md.
+        #   TelemetryBackendDown (backlog #144/ADR 0044 §3): Prometheus
+        #     itself can no longer scrape Loki, Tempo, or Pyroscope's own
+        #     /metrics -- one of the observability stack's own backends is
+        #     down or unreachable, not one of this project's application
+        #     services. Check that backend's own pod first. Deliberately
+        #     does not cover Mimir (see #135, still an open owner
+        #     decision) -- see observability/runbooks/TelemetryBackendDown.md.
         serverFiles:
           alerting_rules.yml:
             groups:
@@ -1419,6 +1466,61 @@ spec:
                     annotations:
                       summary: "{{ $labels.namespace }}/{{ $labels.pod }} is in CrashLoopBackOff or was OOM-killed"
                       description: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) is either stuck in CrashLoopBackOff right now, or its container's last termination was a real OOM kill (exit code 137) -- checked directly via the exit code, not the reason string, since this cluster's kubelet reports OOM kills as the generic reason \"Error\", not \"OOMKilled\" (confirmed live against mimir's own known chronic OOM, backlog #135). Check `kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}` and real memory usage (`container_memory_working_set_bytes`) against the container's own limit before assuming this is new. See observability/runbooks/ContainerCrashLoopOrOOMKilled.md."
+
+                  # backlog #144 (staff review 2026-08-21/ADR 0044 §3): the
+                  # worst combination the audit named was the observability
+                  # stack having zero self-monitoring of its own backends --
+                  # verified live before this rule existed, count(loki_build_info)/
+                  # count(tempo_build_info)/count(pyroscope_build_info) all
+                  # returned zero series (no scrape configs existed at all,
+                  # fixed above by this same PR's three new job_names).
+                  # One alert across all three real jobs, not three separate
+                  # rules -- same BlackboxProbeFailing precedent above
+                  # (job=~ regex, one shared shape, the failing job/instance
+                  # already a real label on the firing series so a human
+                  # doesn't have to guess which backend broke from the alert
+                  # name alone).
+                  #
+                  # `up`, not absent(...): unlike workers/aggregator/
+                  # sentiment-analyzer's pod-role-discovery jobs (where a
+                  # dead consumer means Prometheus's own service discovery
+                  # finds zero targets and the metric goes dark -- the real
+                  # WorkersConsumerMissing/AggregatorConsumerMissing shape),
+                  # loki/tempo/pyroscope above are static_configs -- the
+                  # target address always exists in Prometheus's config
+                  # regardless of whether anything answers on it, so `up`
+                  # always has a series and reads 0 the moment a scrape
+                  # actually fails. This is the standard, textbook
+                  # target-down primitive for a static target, and is
+                  # exactly the "LokiDown/TempoDown-class target-absent
+                  # alert" shape backlog #144's own AC names.
+                  #
+                  # severity: warning, not critical: this is a blind spot in
+                  # this project's OWN tooling (Loki/Tempo/Pyroscope going
+                  # dark loses logs/traces/profiles going forward), not a
+                  # break in the live application path a real user depends
+                  # on the way KafkaBrokerUnavailable/BlackboxProbeFailing
+                  # are -- same severity reasoning as WorkloadRestartingFrequently's
+                  # own "our infra is misbehaving, not our product" framing.
+                  # Deliberately does NOT cover Mimir: #135 (whether Mimir
+                  # stays at all) is still an open owner decision, and a
+                  # Prometheus-remote-write-failure alert is a materially
+                  # different signal from a scrape-target-down one -- see
+                  # backlog #144's own scope split and this PR's description.
+                  # `for: 5m`, matching BlackboxProbeFailing's own debounce
+                  # for the same "a scrape target stopped answering" shape,
+                  # longer than KafkaBrokerUnavailable's 2m since nothing
+                  # else in this cluster depends synchronously on any of
+                  # these three the way every producer/consumer depends on
+                  # the one Kafka broker.
+                  - alert: TelemetryBackendDown
+                    expr: up{job=~"loki|tempo|pyroscope"} == 0
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "{{ $labels.job }} (telemetry backend) has not been scraped successfully for 5m"
+                      description: "up{job=\"{{ $labels.job }}\"} has read 0 for 5m -- Prometheus can no longer reach this telemetry backend's own /metrics endpoint. Check `kubectl get pods -n {{ $labels.job }}` first. Scoped to Loki/Tempo/Pyroscope only (backlog #144/ADR 0044 -- Mimir's own remote-write-failure arm is deliberately deferred pending backlog #135's still-open decommission decision). See observability/runbooks/TelemetryBackendDown.md."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
