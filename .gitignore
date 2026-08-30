@@ -10,3 +10,4 @@
 *.tfstate.*
 *.tfvars
 terraform/kubeconfig
+terraform/node-token

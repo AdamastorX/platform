@@ -6,3 +6,7 @@ output "kubeconfig_path" {
 output "target_host" {
   value = var.target_host
 }
+
+output "agent_hosts" {
+  value = var.agent_hosts
+}
