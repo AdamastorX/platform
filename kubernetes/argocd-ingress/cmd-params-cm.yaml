@@ -1,0 +1,27 @@
+# Real, second recurrence of a gap the previous fix already predicted:
+# bootstrap/install-argocd.sh sets server.insecure: "true" on
+# argocd-cmd-params-cm as a one-time, manual, out-of-band `kubectl
+# patch` (necessarily -- ArgoCD's own core install runs before GitOps
+# exists on a fresh cluster). Being manual and untracked meant it
+# silently didn't survive the #49 Cilium rebuild on the T460s, and was
+# never run at all on the NucBox during the #154 migration -- both
+# clusters hit the exact same real symptom (ERR_TOO_MANY_REDIRECTS on
+# the real Ingress, argocd-server 307-redirecting every plain-HTTP
+# request Traefik forwards it, since it doesn't know Traefik is already
+# the TLS termination point) before being found and fixed live.
+#
+# Committing this ConfigMap here, tracked by the same argocd-ingress
+# Application (automated, selfHeal: true) that already owns the real
+# Ingress for this same UI, closes the gap for real: any future
+# rebuild gets this key from git automatically, no manual step to
+# remember or forget a third time.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cmd-params-cm
+    app.kubernetes.io/part-of: argocd
+data:
+  server.insecure: "true"
