@@ -47,6 +47,22 @@ the SSH bind opened beyond `127.0.0.1` if it's no longer local), then
 `terraform apply` — it destroys the old install (uninstall runs via the
 destroy-time provisioner) and creates the new one. No other change needed.
 
+**Real gremlin, hit migrating off this exact host (2026-08-30):** on a
+`systemd`-socket-activated `sshd` (the default on recent Ubuntu — confirmed
+live via `systemctl cat ssh.socket`, `TriggeredBy: ● ssh.socket` in
+`systemctl status ssh`), editing `sshd_config.d/localhost-only.conf`'s
+`ListenAddress` and running `sudo systemctl restart ssh` is **not enough** —
+`ssh.socket` (not `sshd_config`) actually owns the listening address, via an
+auto-generated drop-in (`/run/systemd/generator/ssh.socket.d/addresses.conf`,
+made by `sshd-socket-generator` from `sshd_config`'s own `ListenAddress` at
+boot/`daemon-reload` time) that silently keeps the *old* bind until that
+generator re-runs. `ss -tlnp | grep :22` still showed only `127.0.0.1:22`
+after the config edit and a plain service restart — no error, it just didn't
+take. Fix: `sudo systemctl daemon-reload && sudo systemctl restart
+ssh.socket` (not `ssh.service`) after any `ListenAddress` change, confirmed
+live to actually add the new address (`ss -tlnp | grep :22` then showed both
+`127.0.0.1:22` and the new one).
+
 ## Multi-node: adding agent hosts (backlog #48/#153, ADR 0045)
 
 Real, physically-separate agent hosts, not VMs on the same box as the
