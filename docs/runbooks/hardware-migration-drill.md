@@ -35,48 +35,30 @@ the live T460s cluster, and the live cluster is not touched, degraded, or
 even synced against during this drill. #154 (the actual cutover) is a
 separate, later, one-way action.
 
-## Step one of this drill: extend Terraform for real multi-node
+## Step one of this drill: real multi-node Terraform (built, platform#206)
 
-`platform/terraform`'s current shape is single-host only (`var.target_host`,
-one k3s server, no agent join flow — see `terraform/README.md`'s own
-"Moving to another machine" section, which describes a single-host
-move, destroy+recreate). This extension is real, scoped work and part of
-#153 itself, per ADR 0045 §Decision.6 ("Terraform is re-targeted at the
-new host as part of #153/#154") — not a separate gate that has to clear
-somewhere else before #153 is allowed to start.
+`platform/terraform` now supports real agent hosts —
+`var.agent_hosts` (a list, `for_each` per host, not `count`, so adding/
+removing one host never touches another), a `null_resource.k3s_agent`
+per entry, `depends_on` the server resource so no agent races the
+server's first boot, join token fetched off the server the same
+gitignored-local-artifact way `kubeconfig` already is. Full design and
+the one-time per-agent host-prep steps (sudoers, the agent install
+script, the `agent-env` file the install script sources) are in
+`terraform/README.md`'s own "Multi-node: adding agent hosts" section —
+this document doesn't repeat them, to avoid the two copies drifting.
 
-**The concrete shape to build already exists, in detail, in backlog
-#48's own acceptance criteria** — closed `Won't do (superseded,
-2026-08-09)` for a reason specific to that context (a second *VM* agent
-on the *same, already-93%-CPU-saturated laptop* physically could not
-fit), not because the Terraform mechanism it designed was wrong. That
-mechanism is exactly what real physical agent nodes need too, re-checked
-against the new hardware's real numbers instead of assumed to still
-apply: `var.agent_count` / `var.agent_hosts` (one SSH-reachable host per
-agent, provisioned by hand in the same one-time host-prep step
-`terraform/README.md` already documents for the server — Terraform
-installs k3s onto a host that already exists, per ADR 0002's scope, it
-doesn't provision the physical hardware itself); a new
-`null_resource "k3s_agent"` (`count = var.agent_count`) running an
-agent-mode install script, `depends_on` the server resource so no agent
-races the server's first boot; and the join token read off the server's
-`/var/lib/rancher/k3s/server/node-token` via a `local-exec` into a
-gitignored `terraform/node-token` file (same pattern as the existing
-`terraform/kubeconfig`), never round-tripped through a kubectl Secret or
-SOPS+age — #48's own AC has the full reasoning for why not.
+This concrete drill's topology (2026-08-30, ADR 0045's real-world
+instantiation): the new NucBox K8 Plus becomes the sole k3s **server**
+(`target_host`) — this drill runs single-node against it first, no
+agent yet. The T460s only rejoins as a real physical **agent**
+(`agent_hosts`) *after* #154's real cutover frees it from production
+duty, per this document's own "What this drill does not do" section —
+not during this drill.
 
-Build this first, as this drill's own first real step: `terraform apply`
-from scratch must produce a healthy multi-node cluster with all nodes
-`Ready`, and a real workload pod confirmed actually scheduled onto an
-agent (`kubectl get pods -A -o wide` — node-level `Ready` alone doesn't
-prove anything actually spread, k3s schedules ordinary pods onto the
-control-plane node by default), before anything below is attempted.
-
-**One-time host prep** (per `terraform/README.md`'s existing pattern,
-repeated per new physical host — the control-plane node and each agent
-node): passwordless SSH, the narrowly-scoped sudoers drop-in, and
-`~/.adamastorx/k3s-install.sh` present, done by hand, `visudo -c`
--validated, same as the existing single-node procedure.
+Before anything below: `terraform apply` against the NucBox alone
+(`target_host` = the NucBox's address, `agent_hosts` left at its `[]`
+default) must produce one healthy `Ready` node.
 
 ## Real inventory: what must survive, carried forward from `flannel-restore.md`
 
