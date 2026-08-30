@@ -72,8 +72,17 @@ spec:
         # it would for a real browser, so this is a genuine end-to-end
         # probe through the real Ingress/TLS/routing chain, not a
         # shortcut to each Service's in-cluster DNS.
+        #
+        # Recurred again for real, exactly as predicted: the #154
+        # hardware migration (NucBox K8 Plus) recreated Traefik's
+        # Service with yet another new ClusterIP (10.43.205.209 ->
+        # 10.43.251.140, confirmed live via `kubectl get svc -n
+        # traefik traefik` on the new host, 2026-08-30). Updated again,
+        # same manual fix as #122 -- still no drift-prevention
+        # mechanism, still an accepted, stated tradeoff, not a silent
+        # gap.
         hostAliases:
-          - ip: 10.43.205.209
+          - ip: 10.43.251.140
             hostNames:
               - api.local.adamastorx.test
               - aggregator.local.adamastorx.test
