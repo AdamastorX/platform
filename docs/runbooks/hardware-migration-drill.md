@@ -334,3 +334,110 @@ apply` and host-prep happened in an earlier, separate session not
 timed as part of this run. The individual, real, measured components
 above (Prometheus copy, Postgres restore, checklist) are the honest
 numbers available from this specific session.
+
+## Real cutover, executed live (2026-08-30/31, backlog #154/#155)
+
+Executed the same day as the drill above, once the owner confirmed
+go. Unlike the drill, this replaced the drill's stale (Aug 25-dump/
+21:11-Prometheus-copy) data with real, current cutover-time data, and
+actually moved live traffic — `/etc/hosts` on both operator machines
+(this T460s and the Mac laptop used going forward) repointed
+`*.local.adamastorx.test` at the NucBox's Tailscale address
+(`100.69.223.105`), then the T460s's `k3s` service was stopped for
+real (`systemctl stop k3s`, confirmed `inactive`).
+
+**Fresh data, not the drill's stale copies**:
+- Postgres: a fresh `pg_dump` (all 3 instances) from the live T460s,
+  restored with `pg_restore --clean --if-exists --no-owner
+  --no-privileges` into the real NucBox target instances (`--clean`
+  this time, since the drill had already left non-empty data there —
+  a plain restore without it throws the same "already exists" errors
+  the drill hit, but now for *data*, not just schema). Verified: row
+  counts match the live T460s source within the few seconds of real
+  traffic between dump and check (`work_items` 252,770 vs. 252,776
+  live; `subscriptions`/`deliveries` exact `2`/`3` match).
+- Prometheus: same PVC-copy pattern as the drill, but this time
+  `kubectl cp <src>/.  <dst>` (trailing dot) on the copy-in side,
+  avoiding the drill's own directory-nesting gremlin outright rather
+  than fixing it after the fact. T460s-side downtime measured: **22:04:31 scale-to-0, 22:07:51 back
+  `Ready`, 3m20s real production downtime** for the copy-out half. NucBox-side: full
+  cycle (scale-down, copy-in over Tailscale, scale-up) to `Ready` at
+  22:18:02. History verified intact across the same multi-day-offset
+  technique, on the fresh copy this time, not the drill's.
+
+**A real, structural fact found trying to stop the T460s the
+naive way**: the first attempt (`kubectl scale deploy ... --replicas=0`
+per app, one at a time) got silently reverted within seconds —
+ArgoCD's own `selfHeal` (already `true` on every real app Application)
+correctly treats git's declared `replicas: 1` as the live source of
+truth and reverts any manual drift, **on both clusters**, since both
+the T460s and the NucBox watch the exact same `argocd/apps/` tree with
+no per-cluster override anywhere in this repo today. There is currently
+no git-native way to run "this app, but at 0 replicas, only on this
+one cluster" — stopping a whole cluster's workloads for real means
+stopping the cluster itself (`systemctl stop k3s`), not fighting
+GitOps app-by-app. Not a bug in this session's plan, a real property
+of the architecture worth knowing before the next person tries the
+same shortcut.
+
+**Two more real gremlins found and fixed live during the cutover
+itself, both git-tracked (not left as manual, repeatable steps)**:
+
+- `blackbox-exporter`'s `hostAliases` had Traefik's *old* ClusterIP
+  hardcoded (`10.43.205.209`, the T460s) — exactly the recurrence
+  backlog #122's own comment on that file already predicted ("a future
+  rebuild will hit this again"). `probe_success` on `blackbox-http-2xx`
+  was `0` for every DNS-independent-of-content check until this was
+  updated to the NucBox's real ClusterIP (`10.43.251.140`), confirmed
+  live via `kubectl get svc -n traefik traefik`. Fixed in
+  `argocd/apps/blackbox-exporter.yaml` (platform#210).
+- ArgoCD's own UI (`https://argocd.local.adamastorx.test/`) was
+  unreachable — `ERR_TOO_MANY_REDIRECTS`, confirmed with `curl -kv`,
+  and confirmed live on the **T460s too** (307 × 10, same symptom,
+  before it was stopped) — a real, pre-existing bug on both clusters,
+  not a migration regression. Root cause: `bootstrap/install-argocd.sh`
+  sets `server.insecure: "true"` on `argocd-cmd-params-cm` as a
+  one-time, manual, out-of-band `kubectl patch` (necessarily, since it
+  runs before GitOps exists on a fresh cluster) — untracked, so it
+  silently didn't survive #49's own Cilium rebuild on the T460s, and
+  was never run at all on the NucBox. Fixed live on both
+  (`kubectl patch` + `rollout restart`), then committed for real as a
+  GitOps-tracked `ConfigMap` under the same `argocd-ingress`
+  Application that already owns this UI's real Ingress, so a future
+  rebuild gets it automatically (platform#211).
+
+**Real RTO, measured components** (no single unbroken end-to-end
+timer — the `/etc/hosts` edits on two separate operator machines and
+the `systemctl stop k3s` step were human-paced across a real
+conversation, not scripted back-to-back): Postgres fresh dump+restore
+(all three instances) under 5 minutes total; Prometheus fresh
+PVC-copy, 3m20s real T460s-side downtime, ~14 minutes NucBox-side full
+cycle including the Tailscale transfer.
+
+**Honest "what didn't come back", per #155's own bar — stated, not
+glossed**:
+- The real ntfy alert topic (the one already subscribed on the
+  owner's phone) could not be recovered — no `sops`/`age` key was
+  available on the machine used for the cutover. A fresh, real (not
+  throwaway-drill) topic was generated instead and the owner
+  re-subscribed live. A synthetic test alert was confirmed routed to
+  the `ntfy` receiver (`status.receivers` in Alertmanager's own API),
+  but full delivery to the ntfy.sh service itself was not
+  independently re-confirmed in this pass — the underlying mechanism
+  is the same one backlog #107 already proved end-to-end once, not a
+  new, unproven path.
+- Backlog #157 (the `postgresql-backup`-family CronJob's real `Failed`
+  runs, found during #153) remains open — not caused by the cutover,
+  but a real, current gap in the migrated cluster's own backup
+  coverage, worth closing before relying on it again.
+- Grafana's dashboards/datasources were not deeply re-verified beyond
+  a login-page reachability check (`200`, no redirect loop) — worth a
+  real look before treating it as fully proven, unlike the six areas
+  #123's own checklist did walk live.
+- No other post-migration regression found.
+
+**Backlog #123 checklist, re-run against the real post-cutover
+NucBox**: **6/6 PASS** — the one item #153's own postscript above left
+PARTIAL (`probe_success`) is now real, full PASS, closed by the
+`blackbox-exporter` fix above, not by anything specific to this
+cutover pass.
