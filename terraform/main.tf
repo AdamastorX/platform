@@ -116,11 +116,11 @@ resource "null_resource" "k3s_agent" {
       ENV_FILE=$(mktemp)
       printf 'K3S_URL=https://%s:6443\nK3S_TOKEN=%s\n' \
         "${var.target_host}" "$(cat ${path.module}/node-token)" > "$ENV_FILE"
-      scp -i ${var.ssh_private_key_path} -o StrictHostKeyChecking=accept-new \
-        "$ENV_FILE" ${var.agent_target_user}@${each.value}:/home/${var.agent_target_user}/.adamastorx/agent-env
+      scp -i "${var.ssh_private_key_path}" -o StrictHostKeyChecking=accept-new \
+        "$ENV_FILE" "${var.agent_target_user}@${each.value}:/home/${var.agent_target_user}/.adamastorx/agent-env"
       rm -f "$ENV_FILE"
-      ssh -i ${var.ssh_private_key_path} -o StrictHostKeyChecking=accept-new \
-        ${var.agent_target_user}@${each.value} \
+      ssh -i "${var.ssh_private_key_path}" -o StrictHostKeyChecking=accept-new \
+        "${var.agent_target_user}@${each.value}" \
         "chmod 600 /home/${var.agent_target_user}/.adamastorx/agent-env && \
          sudo ${var.remote_agent_install_script_path} && \
          systemctl is-active k3s-agent"
@@ -130,8 +130,8 @@ resource "null_resource" "k3s_agent" {
   provisioner "local-exec" {
     when    = destroy
     command = <<-EOT
-      ssh -i ${self.triggers.ssh_private_key_path} -o StrictHostKeyChecking=accept-new \
-        ${self.triggers.agent_target_user}@${self.triggers.agent_host} \
+      ssh -i "${self.triggers.ssh_private_key_path}" -o StrictHostKeyChecking=accept-new \
+        "${self.triggers.agent_target_user}@${self.triggers.agent_host}" \
         "sudo /usr/local/bin/k3s-agent-uninstall.sh"
     EOT
   }
