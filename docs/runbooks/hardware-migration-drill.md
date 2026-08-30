@@ -35,19 +35,42 @@ the live T460s cluster, and the live cluster is not touched, degraded, or
 even synced against during this drill. #154 (the actual cutover) is a
 separate, later, one-way action.
 
-## Real precondition, not yet built: multi-node Terraform
+## Step one of this drill: extend Terraform for real multi-node
 
 `platform/terraform`'s current shape is single-host only (`var.target_host`,
 one k3s server, no agent join flow — see `terraform/README.md`'s own
 "Moving to another machine" section, which describes a single-host
-move, destroy+recreate). Backlog #51's acceptance criteria already names
-the target shape: **Terraform variables and remote-exec extended to
-provision one server plus N agents, with the join token handled as a
-real secret, not hardcoded.** That extension is real, scoped work this
-drill depends on and must do first — not assumed to already exist. Until
-it's built and `terraform apply` from scratch produces a healthy
-multi-node cluster with all nodes `Ready` (per #51's own AC), nothing
-below can start for real.
+move, destroy+recreate). This extension is real, scoped work and part of
+#153 itself, per ADR 0045 §Decision.6 ("Terraform is re-targeted at the
+new host as part of #153/#154") — not a separate gate that has to clear
+somewhere else before #153 is allowed to start.
+
+**The concrete shape to build already exists, in detail, in backlog
+#48's own acceptance criteria** — closed `Won't do (superseded,
+2026-08-09)` for a reason specific to that context (a second *VM* agent
+on the *same, already-93%-CPU-saturated laptop* physically could not
+fit), not because the Terraform mechanism it designed was wrong. That
+mechanism is exactly what real physical agent nodes need too, re-checked
+against the new hardware's real numbers instead of assumed to still
+apply: `var.agent_count` / `var.agent_hosts` (one SSH-reachable host per
+agent, provisioned by hand in the same one-time host-prep step
+`terraform/README.md` already documents for the server — Terraform
+installs k3s onto a host that already exists, per ADR 0002's scope, it
+doesn't provision the physical hardware itself); a new
+`null_resource "k3s_agent"` (`count = var.agent_count`) running an
+agent-mode install script, `depends_on` the server resource so no agent
+races the server's first boot; and the join token read off the server's
+`/var/lib/rancher/k3s/server/node-token` via a `local-exec` into a
+gitignored `terraform/node-token` file (same pattern as the existing
+`terraform/kubeconfig`), never round-tripped through a kubectl Secret or
+SOPS+age — #48's own AC has the full reasoning for why not.
+
+Build this first, as this drill's own first real step: `terraform apply`
+from scratch must produce a healthy multi-node cluster with all nodes
+`Ready`, and a real workload pod confirmed actually scheduled onto an
+agent (`kubectl get pods -A -o wide` — node-level `Ready` alone doesn't
+prove anything actually spread, k3s schedules ordinary pods onto the
+control-plane node by default), before anything below is attempted.
 
 **One-time host prep** (per `terraform/README.md`'s existing pattern,
 repeated per new physical host — the control-plane node and each agent
@@ -57,11 +80,13 @@ node): passwordless SSH, the narrowly-scoped sudoers drop-in, and
 
 ## Real inventory: what must survive, carried forward from `flannel-restore.md`
 
+**Pre-flight, before anything else in this section: run `kubectl get pvc
+-A` against the live old-host cluster and diff the real result against
+the table below — do not start from the table as if it were current.**
 The PVC classification `flannel-restore.md` built for the Cilium rebuild
 applies here with the same reasoning — a full node-loss/host-move wipes
-everything node-pinned (`local-path`) either way. **Re-run `kubectl get
-pvc -A` live at drill time and diff against this table before trusting
-it** — it is carried forward from `flannel-restore.md`'s 2026-08-09
+everything node-pinned (`local-path`) either way — but it is carried
+forward from `flannel-restore.md`'s 2026-08-09
 inventory, and real services have shipped since (`securityContext`
 hardening #142, dashboards, possibly new PVCs) that this copy has not
 re-checked.
