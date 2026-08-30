@@ -15,6 +15,17 @@
 # Ingress for this same UI, closes the gap for real: any future
 # rebuild gets this key from git automatically, no manual step to
 # remember or forget a third time.
+#
+# Real tradeoff, worth knowing before adding a second key here: this
+# Application prunes and self-heals, and Kubernetes ConfigMap `data` is
+# replaced wholesale on sync, not merged -- if a future ArgoCD upstream
+# version ever ships a default key on this same ConfigMap, or anything
+# else ever patches it out-of-band (even temporarily), the next sync
+# silently deletes whatever isn't listed in this file's own `data:`
+# block. Confirmed empty besides `server.insecure` on both real
+# clusters as of this file's writing (2026-08-30/31) -- if that ever
+# changes, add the new key here too, don't assume it survives on its
+# own.
 apiVersion: v1
 kind: ConfigMap
 metadata:
