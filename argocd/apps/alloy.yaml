@@ -26,7 +26,7 @@ spec:
   source:
     repoURL: https://grafana.github.io/helm-charts
     chart: alloy
-    targetRevision: 1.11.0
+    targetRevision: 1.12.1
     helm:
       valuesObject:
         fullnameOverride: alloy
