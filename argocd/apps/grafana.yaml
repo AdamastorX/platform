@@ -33,7 +33,7 @@ spec:
   source:
     repoURL: https://grafana-community.github.io/helm-charts
     chart: grafana
-    targetRevision: 12.8.0
+    targetRevision: 12.11.2
     helm:
       valuesObject:
         fullnameOverride: grafana
