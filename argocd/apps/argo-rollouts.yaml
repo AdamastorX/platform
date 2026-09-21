@@ -23,7 +23,7 @@ spec:
   source:
     repoURL: https://argoproj.github.io/argo-helm
     chart: argo-rollouts
-    targetRevision: 2.41.1
+    targetRevision: 2.43.2
     helm:
       valuesObject:
         # Chart default is 2 (leader-election HA) — this is a single-node
