@@ -3,6 +3,7 @@
 .idea/
 .vscode/
 .claude/worktrees/
+.claude/ralph-loop.local.md
 
 # Terraform
 **/.terraform/
