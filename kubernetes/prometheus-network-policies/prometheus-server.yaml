@@ -300,6 +300,39 @@ spec:
         - ports:
             - port: "8942"
               protocol: TCP
+    # Loki/Tempo/Pyroscope (backlog #144/ADR 0044 §3, job_names loki/
+    # tempo/pyroscope, added in the same PR as the scrape configs
+    # themselves in argocd/apps/prometheus.yaml). Real Service ports
+    # confirmed live via `kubectl get svc -n <ns>`, same as every other
+    # rule in this file -- none of these three namespaces carry a
+    # CiliumNetworkPolicy of their own (confirmed: no
+    # kubernetes/{loki,tempo,pyroscope}-network-policies directory
+    # exists), so they're still in Cilium's cluster-wide default-allow
+    # for ingress; only this pod's own egress needs naming here.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: loki
+            app.kubernetes.io/name: loki
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: tempo
+            app.kubernetes.io/name: tempo
+      toPorts:
+        - ports:
+            - port: "3200"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: pyroscope
+            app.kubernetes.io/name: pyroscope
+      toPorts:
+        - ports:
+            - port: "4040"
+              protocol: TCP
     # Mimir -- NOT a scrape target (found while enumerating this
     # policy's real flows): this Prometheus `remote_write`s to Mimir
     # (argocd/apps/prometheus.yaml's `remoteWrite: url: http://mimir.
