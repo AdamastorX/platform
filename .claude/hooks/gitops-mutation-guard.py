@@ -207,17 +207,18 @@ def main():
         sys.exit(0)
 
     if confirmed_mutation:
-        # Make the allow decision visible/auditable in the transcript
-        # rather than silently proceeding.
+        # Deliberately NOT a permissionDecision: "allow". An allow would
+        # skip Claude Code's own permission prompt, so a model that simply
+        # typed the marker would self-approve a mutation that the user's
+        # normal permission flow would otherwise have put in front of them.
+        # This hook is only ever an extra deny; with the marker present it
+        # steps aside and the normal permission flow still decides. The
+        # systemMessage keeps the marker's use visible in the transcript.
         print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": (
-                    f"Mutating kubectl/terraform command explicitly "
-                    f"confirmed via {CONFIRM_TOKEN} marker."
-                ),
-            }
+            "systemMessage": (
+                f"Mutating kubectl/terraform command carries the "
+                f"{CONFIRM_TOKEN} marker; normal permission flow applies."
+            ),
         }))
         sys.exit(0)
 
