@@ -1411,14 +1411,49 @@ spec:
                   # keyed on the reason string alone would never fire on
                   # this cluster's own real OOM pattern. The numeric exit
                   # code doesn't have that gap.
+                  #
+                  # Backlog #143: the OOM arm alone is now further gated
+                  # on `increase(...restarts_total[15m]) > 0`.
+                  # last_terminated_exitcode is a gauge -- once a
+                  # container dies with 137 it holds that value forever,
+                  # not just at the moment of death, so without a
+                  # recency bound this arm fired severity: critical
+                  # indefinitely for any pod that had *ever* OOMed, long
+                  # after the pod recovered. Confirmed live 2026-08-23
+                  # (KUBECONFIG=platform/terraform/kubeconfig,
+                  # port-forwarded to the real Prometheus, read-only):
+                  # three subjects held exitcode==137 -- mimir (real
+                  # chronic OOM, last restart ~6.7h before this check),
+                  # prometheus-server (one lifetime restart, ~5.3 days
+                  # stale), and beyla (restart count now 2, not the 1
+                  # the backlog's own 2026-08-22 snapshot recorded -- a
+                  # second real OOM found live while building this fix,
+                  # ~10.3h before this check, not yet in any backlog
+                  # entry; noted here rather than silently absorbed).
+                  # 15m is deliberately tight, not tuned to mimir's own
+                  # multi-hour restart gap: the CrashLoopBackOff arm and
+                  # WorkloadRestartingFrequently already cover
+                  # "restarting too often over time" via
+                  # restarts_total's rate; this arm's only job is "did a
+                  # real OOM kill *just* happen," so it's expected to
+                  # clear between mimir's own restarts and re-fire on
+                  # its own cadence (matching the runbook's pre-existing
+                  # note to that effect) rather than stay lit for the
+                  # multi-hour gap in between. At the live check above
+                  # this correctly left only mimir passing the gate;
+                  # prometheus-server's 5.3-day-old restart and beyla's
+                  # 10.3-hour-old one both fall outside any window of
+                  # this size. See PR description for the alternative
+                  # considered (a last_terminated_timestamp recency
+                  # window) and why increase() was chosen instead.
                   - alert: ContainerCrashLoopOrOOMKilled
-                    expr: (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1) or (kube_pod_container_status_last_terminated_exitcode == 137)
+                    expr: (kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1) or ((kube_pod_container_status_last_terminated_exitcode == 137) and (increase(kube_pod_container_status_restarts_total[15m]) > 0))
                     for: 2m
                     labels:
                       severity: critical
                     annotations:
                       summary: "{{ $labels.namespace }}/{{ $labels.pod }} is in CrashLoopBackOff or was OOM-killed"
-                      description: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) is either stuck in CrashLoopBackOff right now, or its container's last termination was a real OOM kill (exit code 137) -- checked directly via the exit code, not the reason string, since this cluster's kubelet reports OOM kills as the generic reason \"Error\", not \"OOMKilled\" (confirmed live against mimir's own known chronic OOM, backlog #135). Check `kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}` and real memory usage (`container_memory_working_set_bytes`) against the container's own limit before assuming this is new. See observability/runbooks/ContainerCrashLoopOrOOMKilled.md."
+                      description: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) is either stuck in CrashLoopBackOff right now, or restarted within the last 15m and its container's last termination was a real OOM kill (exit code 137) -- checked directly via the exit code, not the reason string, since this cluster's kubelet reports OOM kills as the generic reason \"Error\", not \"OOMKilled\" (confirmed live against mimir's own known chronic OOM, backlog #135). The 15m recency gate (backlog #143) stops a stale exit-code-137 gauge from paging forever after the pod recovered -- check `kubectl get pod {{ $labels.pod }} -n {{ $labels.namespace }}` for the real current restart count/age before assuming this is an active, ongoing problem. Check `kubectl describe pod {{ $labels.pod }} -n {{ $labels.namespace }}` and real memory usage (`container_memory_working_set_bytes`) against the container's own limit before assuming this is new. See observability/runbooks/ContainerCrashLoopOrOOMKilled.md."
   destination:
     server: https://kubernetes.default.svc
     namespace: prometheus
