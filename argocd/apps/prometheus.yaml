@@ -1021,11 +1021,23 @@ spec:
                   # named for this exact signal, long enough that a
                   # normal few-second Kafka propagation delay never
                   # trips it.
+                  # The two sides carry different labels (job, instance, ...),
+                  # and a bare `>` between two instant vectors only matches
+                  # series with identical label sets -- so the original
+                  # un-aggregated form returned no series at all and could
+                  # never fire (confirmed against the live Prometheus: two
+                  # real series with equal values and different `job`
+                  # labels compare to 0 series, 1 series with `on()`).
+                  # Each side is sum()'d to one label-less series; the
+                  # right side falls back to vector(0) so "api consumed
+                  # nothing at all" -- an absent series, the very failure
+                  # this alert exists for -- still compares as a gap
+                  # instead of vanishing.
                   - alert: ClinVarInvalidationLag
                     expr: >-
-                      increase(clinvar_ingestion_jobs_total{job="clinvar-service", status="succeeded"}[1h])
+                      sum(increase(clinvar_ingestion_jobs_total{job="clinvar-service", status="succeeded"}[1h]))
                       >
-                      increase(spring_kafka_listener_seconds_count{job="api", messaging_source_name="clinvar.ingestion.completed", error="none"}[1h])
+                      (sum(increase(spring_kafka_listener_seconds_count{job="api", messaging_source_name="clinvar.ingestion.completed", error="none"}[1h])) or vector(0))
                     for: 15m
                     labels:
                       severity: critical
