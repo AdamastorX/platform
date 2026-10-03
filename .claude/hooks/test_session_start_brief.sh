@@ -7,8 +7,8 @@
 # the way Claude Code's runtime invokes hooks. It cannot prove a real
 # SessionStart event fires this script inside an actual Claude Code
 # session, or that a later Bash tool call in that session really sees
-# KUBECONFIG (that part is set by ../settings.json's `env` block, not by
-# this script -- see this hook's own docstring). See the PR description
+# KUBECONFIG (nothing in this repo sets it; the path is per machine --
+# see this hook's own docstring). See the PR description
 # for what was and wasn't independently verified end-to-end.
 #
 # Usage: ./test_session_start_brief.sh
@@ -52,8 +52,8 @@ echo "== (a) valid SessionStart payload (source=startup) =="
 output=$(make_input "startup" | "$HOOK")
 assert_contains "exits with parseable JSON"            "$(echo "$output" | python3 -c 'import json,sys; json.load(sys.stdin); print("ok")' 2>&1)" "ok"
 assert_contains "hookEventName is SessionStart"         "$output" '"hookEventName": "SessionStart"'
-assert_contains "mentions KUBECONFIG path"              "$output" "/home/lmpeixoto/repos/AdamastorX/platform/terraform/kubeconfig"
-assert_contains "mentions the env block, not the hook, sets it" "$output" "not by this hook"
+assert_contains "says KUBECONFIG is not set by the repo" "$output" "not** set by this repo"
+assert_contains "tells the session to export its own"    "$output" "Export your own"
 assert_contains "mentions backlog #150"                 "$output" "backlog #150"
 assert_contains "includes ArgoCD root-refresh gremlin"  "$output" "root"
 assert_contains "includes Boot 4.1 autoconfig gremlin"  "$output" "Boot 4.1"

@@ -30,21 +30,11 @@ later Bash tool invocations. Printing `export KUBECONFIG=...` here would
 look like it works (it would even echo convincingly in the transcript)
 while doing nothing for the very next `Bash` tool call.
 
-The real, working mechanism for "every session's Bash calls see
-KUBECONFIG set, no manual export" is the top-level `env` block in
-`../settings.json` -- documented as setting environment variables "for
-every session and its subprocesses," which includes the Bash tool. That's
-where KUBECONFIG is actually set for this repo now; this script does not
-touch it. (Confirmed via the current hooks/settings/permissions docs at
-https://code.claude.com/docs/en/hooks,
-https://code.claude.com/docs/en/settings-reference, and
-https://code.claude.com/docs/en/permissions -- the last of these confirms
-`env` block values apply even when only a *parent* folder has been
-trusted, same tier as hooks, unlike `permissions.allow` rules.)
-
-This script still mentions the KUBECONFIG path in its printed brief, as a
-visible confirmation of where it's coming from -- not because this script
-is the thing setting it.
+Nor is KUBECONFIG set by this repo's `settings.json`: the kubeconfig path
+differs per machine (a Linux path from the original host does not exist on
+the operator's Mac, and an `env` entry would override the operator's own
+export with a file that is not there), so nothing machine-specific is
+committed. This script only reminds the session to set its own.
 """
 import json
 import os
@@ -52,7 +42,6 @@ import sys
 
 HOOK_DIR = os.path.dirname(os.path.abspath(__file__))
 GREMLINS_FILE = os.path.join(HOOK_DIR, "known-gremlins.md")
-KUBECONFIG_PATH = "/home/lmpeixoto/repos/AdamastorX/platform/terraform/kubeconfig"
 
 
 def build_context() -> str:
@@ -67,11 +56,10 @@ def build_context() -> str:
 
     return (
         "## AdamastorX session brief (backlog #150, convenience only)\n\n"
-        f"KUBECONFIG is set to `{KUBECONFIG_PATH}` for this session via "
-        "`.claude/settings.json`'s `env` block (not by this hook) -- "
-        "`kubectl` should work without a manual export. If it doesn't, "
-        "that block may need re-adding or the folder may need "
-        "(re-)trusting.\n\n"
+        "KUBECONFIG is **not** set by this repo -- the path is per machine. "
+        "Export your own before any `kubectl` (e.g. `export "
+        "KUBECONFIG=~/.kube/<your-config>`); a missing or stale one gives "
+        "TLS or connection errors that look like a cluster problem.\n\n"
         "### Known gremlins worth reading, not rediscovering\n\n"
         f"{gremlins}\n"
     )
