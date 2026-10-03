@@ -18,7 +18,15 @@
 # section, adamastorx repo): clinvar-viewer/visualizer are static
 # frontends with no backend of their own to have a golden signal for;
 # workload-generator is synthetic traffic infrastructure, not a
-# service with its own dashboard-worthy signal. Stated here so
+# service with its own dashboard-worthy signal; alloy-network-policies,
+# api-network-policies, clinvar-network-policies, kafka-network-policies,
+# prometheus-network-policies and workers-network-policies are
+# CiliumNetworkPolicy manifest batches (backlog #50, #126), not
+# workloads -- they run no process and emit no metric of their own
+# (their effect shows in Hubble drop verdicts and the protected
+# namespaces' own dashboards); vpa-objects is recommendation-only
+# VerticalPodAutoscaler objects (backlog #101), advisory data rather
+# than a service. Stated here so
 # scripts/check-roster-drift.sh's grace-period check (backlog #109)
 # can find the reason the same way it finds a real dashboard.
 apiVersion: argoproj.io/v1alpha1
