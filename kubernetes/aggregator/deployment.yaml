@@ -33,6 +33,16 @@ spec:
       labels:
         app: aggregator
     spec:
+      # backlog #142: pod-level defaults every container inherits. UID/GID
+      # 10001 matches this image's own baked-in USER (services/Dockerfile,
+      # the shared Java build) -- pinning the existing runtime identity at
+      # the Kubernetes API level, not changing it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: aggregator
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
@@ -77,6 +87,29 @@ spec:
             # deployment.yaml/service.yaml already establish.
             - name: http
               containerPort: 8080
+          # backlog #142: readOnlyRootFilesystem needs the tmp emptyDir
+          # below for two real writes, not one -- embedded Tomcat's own
+          # work dir (same as every other Spring Boot module here), PLUS
+          # this module's Kafka Streams state-dir (application.yml:
+          # spring.kafka.streams.state-dir: /tmp/kafka-streams), the local
+          # RocksDB store this Deployment's own comment above already
+          # explains is deliberately unbacked by a PVC (every restart
+          # restores fully from the changelog). Same /tmp mount covers
+          # both -- Kafka Streams creates the kafka-streams/ subdirectory
+          # itself.
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092
@@ -166,3 +199,13 @@ spec:
             limits:
               cpu: "1"
               memory: 640Mi
+      # backlog #142: tmpfs (Memory-backed) -- RocksDB's real worst-case
+      # footprint here is documented above (~24MB across this topology's
+      # stores), well within this sizeLimit and well under the 640Mi
+      # memory limit this container already has. Counts against this
+      # container's own memory cgroup, not the node's disk.
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
