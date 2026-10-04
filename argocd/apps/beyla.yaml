@@ -66,12 +66,25 @@ spec:
         # in-cluster without a matching git commit was reverted by
         # ArgoCD's own selfHeal before it could be validated -- the fix
         # only actually took effect once committed here.
+        #
+        # 2026-10-04: 1Gi was hit again. The host's kernel log shows
+        # memcg OOM kills of beyla at ~750Mi anon-rss (the cgroup also
+        # counts page cache and BPF map memory) five times in 12h on
+        # 2026-10-03/04, exit 137 with reason `Error`, not `OOMKilled`;
+        # the working set sits at ~820-910Mi and grows ~20Mi/h, so the
+        # pod restarted every few hours and its scrape target flapped
+        # (`connection reset by peer`, up{job="beyla"}=0), starving the
+        # beyla-vs-manual dashboard (backlog #145). The node itself has
+        # ~60GB RAM with ~39GB free and the 8GB swap unused: this is a
+        # per-container limit sized for the old host, not node pressure.
+        # 2Gi gives ~2x headroom at the current growth rate; it does not
+        # fix the growth itself, which #145 should still characterize.
         resources:
           requests:
             cpu: 100m
             memory: 256Mi
           limits:
-            memory: 1Gi
+            memory: 2Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: beyla
