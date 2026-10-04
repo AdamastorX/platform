@@ -129,13 +129,24 @@ spec:
         # heaviest Cilium component (ADR 0023 records ~200-300Mi/node); size
         # the request at the top of that band with real burst headroom in
         # the limit. This top-level `resources` maps to the agent container.
+        #
+        # 2026-10-04: 600Mi was hit. The agent's working set peaked at
+        # 599Mi over 12h and the kernel log shows a memcg OOM kill of
+        # cilium-agent together with one of its own `clang` BPF-compile
+        # children at 04:26 (a `clang` BPF compile is endpoint
+        # regeneration, the likely memory spike; the kernel line gives
+        # only the killed process's ~174Mi anon-rss, not the cgroup total,
+        # which the working-set peak of 599Mi shows was at the limit). The node has
+        # ~60GB RAM with ~39GB free, so this is a limit inherited from the
+        # old host, not node pressure. 1Gi keeps real headroom for
+        # regeneration bursts (many pods recreated at once).
         resources:
           requests:
             cpu: 100m
             memory: 256Mi
           limits:
             cpu: 800m
-            memory: 600Mi
+            memory: 1Gi
         # --- cilium-operator --------------------------------------------
         operator:
           # Chart default is 2 (HA across nodes). One node => the second
