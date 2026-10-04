@@ -3,6 +3,7 @@
 .idea/
 .vscode/
 .claude/worktrees/
+.claude/ralph-loop.local.md
 
 # Terraform
 **/.terraform/
@@ -10,3 +11,4 @@
 *.tfstate.*
 *.tfvars
 terraform/kubeconfig
+terraform/node-token
