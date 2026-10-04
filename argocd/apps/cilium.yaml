@@ -67,7 +67,18 @@ spec:
         # and operator must be told the real API server address directly.
         # k3s serves the API on the node's own IP:6443 (no external LB).
         # Rendered into KUBERNETES_SERVICE_HOST/PORT on every Cilium pod.
-        k8sServiceHost: "192.168.1.10"
+        #
+        # 2026-10-04: this was "192.168.1.10", a DHCP address. The node is
+        # now 192.168.1.7 on a Wi-Fi interface (wlx0cef15d0626a, DHCP), so a
+        # restarted agent could not reach the API server: the `config` init
+        # container failed with "dial tcp 192.168.1.10:6443: connection
+        # refused" and the pod sat in Init:CrashLoopBackOff. The agent that
+        # had been running only survived because its API connection was
+        # already established. The agent and the operator both run with
+        # hostNetwork, and k3s serves the API on the node's loopback too, so
+        # 127.0.0.1 reaches it on this single node whatever address DHCP
+        # hands out (the k3s serving certificate carries 127.0.0.1 as a SAN).
+        k8sServiceHost: "127.0.0.1"
         k8sServicePort: "6443"
         # --- DNS proxy ----------------------------------------------------
         # Real, live incident (2026-08-10): the chart's version-dependent
