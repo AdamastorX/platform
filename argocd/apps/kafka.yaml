@@ -62,13 +62,29 @@ spec:
           # same reasoning as #75: node memory has real headroom (43%
           # requested at the time of this change, `kubectl describe
           # node`), CPU remains the scarce resource this doesn't touch.
+          #
+          # 2026-10-04: still at the ceiling. The chart sizes the JVM heap
+          # as a *percentage of the limit* (default InitialRAMPercentage=75
+          # / MaxRAMPercentage=75, verified live in KAFKA_HEAP_OPTS), so
+          # the heap alone was ~1920Mi of the 2560Mi limit and the
+          # container's working set sat at 2462Mi (max 2543Mi over 24h):
+          # 96-99% of its limit in steady state, with ~640Mi for metaspace,
+          # direct buffers and page cache. The kernel OOM-killed it at
+          # 01:47 (java ~2.6GB anon, `OOMKilled`, exit 137). Raising the
+          # limit alone would not help, because the heap scales with it.
+          # So: limit 4096Mi AND heap 50% -> a 2048Mi heap (about what it
+          # has today, 1920Mi) with ~2Gi of real headroom instead of
+          # ~640Mi. The node has ~60GB RAM with ~39GB free: this limit was
+          # sized for the old host. The StatefulSet restarts the broker
+          # once on rollout; data is on the PVC (ADR 0032).
+          heapOpts: -XX:InitialRAMPercentage=50 -XX:MaxRAMPercentage=50
           resources:
             requests:
               cpu: 500m
               memory: 1024Mi
             limits:
               cpu: 750m
-              memory: 2560Mi
+              memory: 4096Mi
           persistence:
             # ADR 0032 (backlog #95, 2026-08-07): reverses ADR 0011's own
             # emptyDir choice, superseded rather than deleted (see that
