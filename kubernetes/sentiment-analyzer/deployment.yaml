@@ -31,6 +31,16 @@ spec:
       labels:
         app: sentiment-analyzer
     spec:
+      # backlog #142: pod-level defaults every container inherits. UID/GID
+      # 10001 matches this image's own baked-in USER (sentiment-analyzer/
+      # Dockerfile) -- pinning the existing runtime identity at the
+      # Kubernetes API level, not changing it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: sentiment-analyzer
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
@@ -56,6 +66,23 @@ spec:
             # have something to hit.
             - name: http
               containerPort: 8000
+          # backlog #142: readOnlyRootFilesystem needs no extra tmpfs mount
+          # -- audited this module's own source, not assumed: no file
+          # write anywhere in app/ (grepped for FileHandler/open(...'w')/
+          # tempfile/makedirs, none found). VADER's lexicon is bundled
+          # read-only inside vaderSentiment's own site-packages install;
+          # librdkafka's stats are pulled via the stats_cb callback (see
+          # this file's own comment above), never written to a stats file.
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092

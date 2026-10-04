@@ -19,6 +19,16 @@ spec:
       labels:
         app: workload-generator
     spec:
+      # backlog #142: pod-level defaults every container inherits. UID/GID
+      # 10001 matches this image's own baked-in USER (workload-generator/
+      # Dockerfile) -- pinning the existing runtime identity at the
+      # Kubernetes API level, not changing it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: workload-generator
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
@@ -72,6 +82,22 @@ spec:
                   key: api-key
             - name: CA_BUNDLE_PATH
               value: /etc/workload-generator/ca/ca.crt
+          # backlog #142: readOnlyRootFilesystem needs the tmp emptyDir
+          # below -- HEARTBEAT_PATH above (/tmp/workload-generator-
+          # heartbeat) is a real write this container's own healthcheck
+          # (generator/healthcheck.py) and main loop (generator/run.py)
+          # both depend on; audited the rest of generator/ and found no
+          # other file write.
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
           # No ports -- this component makes only outbound calls (backend-
           # engineer.md/platform-engineer.md's "simplest thing that works"
           # AC allowance: a container running a script). Health is a
@@ -141,6 +167,8 @@ spec:
             - name: ca-bundle
               mountPath: /etc/workload-generator/ca
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       # backlog #56: api.local.adamastorx.test has no public DNS record
       # (ADR 0004) -- it only ever resolved via a client's own
       # /etc/hosts or --resolve flag (cert-manager-issuers/README.md).
@@ -163,3 +191,9 @@ spec:
         - name: ca-bundle
           configMap:
             name: adamastorx-ca
+        # backlog #142: tmpfs (Memory-backed) -- the heartbeat file is a
+        # few bytes, no reason for real disk I/O.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi

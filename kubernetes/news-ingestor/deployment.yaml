@@ -20,6 +20,16 @@ spec:
       labels:
         app: news-ingestor
     spec:
+      # backlog #142: pod-level defaults every container inherits. UID/GID
+      # 10001 matches this image's own baked-in USER (services/Dockerfile,
+      # the shared Java build) -- pinning the existing runtime identity at
+      # the Kubernetes API level, not changing it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: news-ingestor
           # Image tag is the services repo's commit SHA (ADR 0008/0009,
@@ -42,6 +52,23 @@ spec:
             # (argocd/apps/prometheus.yaml) have something to hit).
             - name: http
               containerPort: 8080
+          # backlog #142: readOnlyRootFilesystem needs the tmp emptyDir
+          # below -- embedded Tomcat creates its own base/work directory
+          # under java.io.tmpdir (/tmp) on every startup regardless of
+          # whether this app serves JSPs/uploads (it doesn't).
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: kafka.kafka.svc.cluster.local:9092
@@ -91,3 +118,11 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+      # backlog #142: tmpfs (Memory-backed) -- Tomcat's own work dir is
+      # small and short-lived. Counts against this container's own memory
+      # cgroup, sized well under the 512Mi limit above.
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

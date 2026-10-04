@@ -14,6 +14,17 @@ spec:
       labels:
         app: visualizer
     spec:
+      # backlog #142: pod-level defaults every container inherits. UID/GID
+      # 101 matches nginxinc/nginx-unprivileged's own baked-in USER
+      # (verified against the published image config, not guessed) --
+      # pinning the existing runtime identity at the Kubernetes API
+      # level, not changing it.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: visualizer
           # Image tag is the services repo's commit SHA (ADR 0008/0009)
@@ -25,6 +36,23 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          # backlog #142: readOnlyRootFilesystem needs the tmp emptyDir
+          # below -- same nginxinc/nginx-unprivileged image as
+          # clinvar-viewer, same reasoning: its nginx.conf already
+          # redirects the pid file and every temp_path directive to /tmp
+          # (verified against the image's own build history, not
+          # guessed), so one /tmp mount covers everything nginx itself
+          # needs to write.
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
           # Static nginx, no external dependency to check -- the
           # container's own listen socket is the whole health signal,
           # same as clinvar-viewer's own deployment.yaml.
@@ -84,7 +112,16 @@ spec:
               mountPath: /usr/share/nginx/html/config.js
               subPath: config.js
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: visualizer-config
           secret:
             secretName: visualizer-config
+        # backlog #142: tmpfs (Memory-backed) -- pid file + nginx's own
+        # temp_path directories, a static site with no proxying/uploads
+        # to size against, kept small on purpose.
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
