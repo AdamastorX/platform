@@ -142,6 +142,37 @@ spec:
         - ports:
             - port: "8888"
               protocol: TCP
+    # Observability backends' own self-metrics (backlog #144, jobs
+    # loki/tempo/pyroscope in prometheus.yaml's extraScrapeConfigs).
+    # Real container ports read from the live pods, not the Services'
+    # own port names: loki `http-metrics` = 3100, tempo 3200,
+    # pyroscope `http2` = 4040. These three namespaces have no
+    # NetworkPolicy of their own, so only this egress side needs
+    # naming.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: loki
+            app.kubernetes.io/name: loki
+      toPorts:
+        - ports:
+            - port: "3100"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: tempo
+            app.kubernetes.io/name: tempo
+      toPorts:
+        - ports:
+            - port: "3200"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: pyroscope
+            app.kubernetes.io/name: pyroscope
+      toPorts:
+        - ports:
+            - port: "4040"
+              protocol: TCP
     # workers (job_name: workers, pod-role SD, /actuator/prometheus).
     - toEndpoints:
         - matchLabels:
