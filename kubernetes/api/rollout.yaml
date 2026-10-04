@@ -154,21 +154,27 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
-          # backlog #142: no explicit runAsUser/runAsGroup here, deliberately
-          # -- verified against the published curlimages/curl:8.11.1 image
-          # config (docker.io registry API, not guessed) that its baked-in
-          # default user is "curl_user", but that image publishes no stable
-          # numeric UID/GID to pin against the way this project's own
-          # Dockerfiles do (USER 10001). Leaving runAsUser/runAsGroup unset
-          # still gets a real non-root enforcement: runAsNonRoot (pod-level,
-          # inherited) makes the kubelet reject the pod outright if the
-          # image's own resolved UID were ever 0. The one write this
-          # container does (curl -o /pyroscope-agent/pyroscope.jar) targets
-          # the emptyDir below, which stays writable regardless of
-          # readOnlyRootFilesystem.
+          # backlog #142: runAsUser/runAsGroup MUST be numeric here. The
+          # first version of this change left them unset on the reasoning
+          # that the image publishes no numeric UID; that was wrong in the
+          # way that matters: the image's baked-in user is the *name*
+          # "curl_user", and with runAsNonRoot the kubelet refuses a name it
+          # cannot resolve to a number ("container has runAsNonRoot and image
+          # has non-numeric user (curl_user), cannot verify user is
+          # non-root", CreateContainerConfigError), so every new api
+          # revision stuck in Init (found live 2026-10-04, the Rollout kept
+          # serving from the stable ReplicaSet). The numbers are in the
+          # image's own /etc/passwd and /etc/group, read from the
+          # curlimages/curl:8.11.1 layers through the registry API:
+          # curl_user:x:100:101 and group curl_group:101. Re-check them when
+          # this image tag is bumped. The one write this container does
+          # (curl -o /pyroscope-agent/pyroscope.jar) targets the emptyDir
+          # below, which stays writable regardless of readOnlyRootFilesystem.
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
