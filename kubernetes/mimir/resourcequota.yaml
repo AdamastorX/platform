@@ -8,6 +8,15 @@
 # further -- re-tighten against real `kubectl top pod` usage once this
 # has actually run live, the same backlog #77 discipline every other
 # service here followed.
+#
+# 2026-10-06: the memory numbers above were resized after measuring (working
+# set 690-746Mi of the 768Mi limit for a week, OOMKilled 2026-10-04): steady
+# state is now requests mem=768Mi, limits mem=1536Mi (kubernetes/mimir/
+# deployment.yaml). The rolling-update peak (maxSurge=1 doubles it) is then
+# requests mem=1536Mi and limits mem=3072Mi, so the memory quota below is
+# raised to clear that peak with the same small margin; CPU is unchanged.
+# Left at the old 640Mi/1792Mi the new pod would be rejected outright
+# ("exceeded quota"), so this file must change together with deployment.yaml.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -15,6 +24,6 @@ metadata:
 spec:
   hard:
     requests.cpu: 300m
-    requests.memory: 640Mi
+    requests.memory: 1792Mi
     limits.cpu: 1200m
-    limits.memory: 1792Mi
+    limits.memory: 3328Mi
