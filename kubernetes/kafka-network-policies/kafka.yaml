@@ -23,9 +23,21 @@ metadata:
   name: kafka
   namespace: kafka
 spec:
+  # The broker only. `app.kubernetes.io/name: kafka` alone also matches the
+  # chart's topic-provisioning Job pod (same name label; its component is
+  # `kafka-provisioning`), which then inherited this policy's egress, DNS
+  # only, and could never reach the broker: its `wait-for-available-kafka`
+  # init container failed with `EGRESS DENIED` to kafka-controller-0:9092
+  # (Hubble, 2026-10-06), so the `post-upgrade` hook never completed and
+  # held every `kafka` sync open. Found only on the first Kafka sync after
+  # this policy shipped (#126, 2026-08-21). Not selecting the Job pod at all
+  # leaves it with no policy, which is what its same-namespace ingress note
+  # below already assumed; only the broker carries
+  # `component: controller-eligible`.
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: kafka
+      app.kubernetes.io/component: controller-eligible
   ingress:
     # kubelet's own readiness probe (StatefulSet's tcpSocket probe on
     # the "controller" port) -- confirmed live via the StatefulSet spec
