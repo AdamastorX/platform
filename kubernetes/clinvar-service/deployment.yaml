@@ -73,7 +73,7 @@ spec:
           # ~88MiB across the whole scan) and isolated the remaining
           # peak to compute_changed_keys' two-full-dict diff step,
           # which now streams against one dict instead.
-          image: ghcr.io/adamastorx/clinvar-service:725bbe530e8541d3cdb71b4a60592e7eda2d3efe
+          image: ghcr.io/adamastorx/clinvar-service:bc3fb9780265f1b699c2ebbc92d57053b0f7b157
           ports:
             - name: http
               containerPort: 8000
