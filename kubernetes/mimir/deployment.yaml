@@ -71,13 +71,24 @@ spec:
           # against real `kubectl top pod` usage once this has actually
           # run live, the same backlog #77 discipline every other
           # service here followed.
+          #
+          # 2026-10-06, measured: the working set sits at 690-746Mi of the
+          # 768Mi limit for a whole week (90-97%, flat, no growth), and the
+          # kernel memcg-OOM-killed it on 2026-10-04 19:04Z (~778MB
+          # anon-rss, `OOMKilled`, exit 137, 2 restarts). The owner decided
+          # to keep Mimir (backlog #135), so size it for what it really
+          # uses: a limit of 1536Mi (2x the old one, ~2x the steady state)
+          # and a request of 768Mi, close to the measured steady state so
+          # the scheduler and eviction ordering see the real footprint. The
+          # node has ~60GB RAM with ~39GB free; the 768Mi limit was sized
+          # for the old host. The CPU numbers are untouched.
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 768Mi
             limits:
               cpu: 500m
-              memory: 768Mi
+              memory: 1536Mi
       volumes:
         - name: config
           configMap:
