@@ -77,7 +77,34 @@ spec:
           # ~640Mi. The node has ~60GB RAM with ~39GB free: this limit was
           # sized for the old host. The StatefulSet restarts the broker
           # once on rollout; data is on the PVC (ADR 0032).
-          heapOpts: -XX:InitialRAMPercentage=50 -XX:MaxRAMPercentage=50
+          #
+          # 2026-10-06: the 4096Mi limit was NOT enough. The broker was
+          # OOM-killed again on 2026-10-04 22:11Z with java at 4.17GB
+          # anon-rss: the whole limit, with a 2Gi heap. It had been flat at
+          # ~1.1GiB, then climbed 2.9 -> 3.9GiB in the hour before the kill
+          # while a round of service restarts made consumers re-subscribe
+          # and the aggregator restore its Kafka Streams state from the
+          # changelog topics (heavy fetches). Flat for 47h since. The ~2GB
+          # beyond the heap is native memory with no ceiling: direct
+          # buffers (MaxDirectMemorySize defaults to the max heap, 2Gi), the
+          # JDK's per-thread temporary direct-buffer cache (unbounded by
+          # default) and glibc malloc arenas. NOT proven (needs the NMT data
+          # below), so these are bounded-risk caps, not a diagnosis:
+          #  - MaxDirectMemorySize=768m: this is a single small broker;
+          #  - jdk.nio.maxCachedBufferSize=262144: stop giant buffers from
+          #    staying cached after one large read;
+          #  - MALLOC_ARENA_MAX=2 (extraEnvVars below): fewer glibc arenas;
+          #  - NativeMemoryTracking=summary: ~5-10% overhead, but it lets
+          #    `jcmd 1 VM.native_memory summary` name the real consumer next
+          #    time. Do not `kubectl exec` kafka-topics.sh in this pod: it
+          #    starts a second JVM in the same cgroup with the same
+          #    percentage heap.
+          # Worst case now: 2Gi heap + 768Mi direct + ~0.6Gi metaspace,
+          # code cache, stacks and GC structures: ~3.4Gi inside 4096Mi.
+          heapOpts: -XX:InitialRAMPercentage=50 -XX:MaxRAMPercentage=50 -XX:MaxDirectMemorySize=768m -Djdk.nio.maxCachedBufferSize=262144 -XX:NativeMemoryTracking=summary
+          extraEnvVars:
+            - name: MALLOC_ARENA_MAX
+              value: "2"
           resources:
             requests:
               cpu: 500m
