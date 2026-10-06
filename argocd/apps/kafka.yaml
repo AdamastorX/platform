@@ -78,30 +78,40 @@ spec:
           # sized for the old host. The StatefulSet restarts the broker
           # once on rollout; data is on the PVC (ADR 0032).
           #
-          # 2026-10-06: the 4096Mi limit was NOT enough. The broker was
-          # OOM-killed again on 2026-10-04 22:11Z with java at 4.17GB
-          # anon-rss: the whole limit, with a 2Gi heap. It had been flat at
-          # ~1.1GiB, then climbed 2.9 -> 3.9GiB in the hour before the kill
-          # while a round of service restarts made consumers re-subscribe
-          # and the aggregator restore its Kafka Streams state from the
-          # changelog topics (heavy fetches). Flat for 47h since. The ~2GB
-          # beyond the heap is native memory with no ceiling: direct
-          # buffers (MaxDirectMemorySize defaults to the max heap, 2Gi), the
-          # JDK's per-thread temporary direct-buffer cache (unbounded by
-          # default) and glibc malloc arenas. NOT proven (needs the NMT data
-          # below), so these are bounded-risk caps, not a diagnosis:
-          #  - MaxDirectMemorySize=768m: this is a single small broker;
-          #  - jdk.nio.maxCachedBufferSize=262144: stop giant buffers from
-          #    staying cached after one large read;
-          #  - MALLOC_ARENA_MAX=2 (extraEnvVars below): fewer glibc arenas;
-          #  - NativeMemoryTracking=summary: ~5-10% overhead, but it lets
-          #    `jcmd 1 VM.native_memory summary` name the real consumer next
-          #    time. Do not `kubectl exec` kafka-topics.sh in this pod: it
-          #    starts a second JVM in the same cgroup with the same
-          #    percentage heap.
-          # Worst case now: 2Gi heap + 768Mi direct + ~0.6Gi metaspace,
-          # code cache, stacks and GC structures: ~3.4Gi inside 4096Mi.
-          heapOpts: -XX:InitialRAMPercentage=50 -XX:MaxRAMPercentage=50 -XX:MaxDirectMemorySize=768m -Djdk.nio.maxCachedBufferSize=262144 -XX:NativeMemoryTracking=summary
+          # 2026-10-06, MEASURED ROOT CAUSE: the heap was never a
+          # percentage of the container limit. The broker JVM reports
+          # `MaxRAM=62989680640` (exactly the host's 60GB of RAM),
+          # `MaxHeapSize=31507611648` (29.3GiB, exactly 50% of that) and
+          # `MaxNewSize=18.9GB`, in a 4096Mi cgroup (`jcmd 1 VM.flags`,
+          # `VM.native_memory` from an ephemeral debug container). So
+          # InitialRAMPercentage/MaxRAMPercentage here meant a fraction of
+          # the HOST, nothing bounded the heap except the cgroup killing
+          # the process, and every earlier comment in this file that said
+          # "heap = 75% of the limit" (#75, #84, the 2026-10-04 notes) was
+          # wrong. That is why the broker sat at 96-99% of its limit in
+          # steady state, was OOM-killed at 2560Mi (2026-10-04 01:47) and
+          # again at 4096Mi (22:11Z, java 4.17GB anon-rss) when a round of
+          # service restarts made consumers re-subscribe and the aggregator
+          # restore its Streams state (heavy fetches). Why the JVM does not
+          # pick up the cgroup limit is not understood (a fresh JVM in the
+          # same pod does print `Memory Limit: 4.00G`); it does not matter,
+          # because absolute sizes work whatever it detects:
+          #  - -Xms1g -Xmx2g: a real heap ceiling (it was ~357Mi used when
+          #    measured at idle);
+          #  - MaxDirectMemorySize=768m (the default is the max heap);
+          #  - jdk.nio.maxCachedBufferSize=262144 and MALLOC_ARENA_MAX=2
+          #    (extraEnvVars below): standard caps on native-memory growth;
+          #  - NativeMemoryTracking=summary (~5-10% overhead): this image is
+          #    a JRE with no `jcmd`, so read it from an ephemeral container:
+          #    kubectl debug -n kafka kafka-controller-0 --target=kafka \
+          #      --image=eclipse-temurin:25-jdk --custom=<runAsUser 1001> \
+          #      -- jcmd 1 VM.native_memory summary
+          #    (the attach needs the broker's own uid, 1001).
+          # Do not `kubectl exec` kafka-topics.sh in this pod: it starts a
+          # second JVM in the same cgroup with these same flags.
+          # Worst case: 2Gi heap + 768Mi direct + ~0.6Gi metaspace, code
+          # cache, stacks and GC structures: ~3.4Gi inside 4096Mi.
+          heapOpts: -Xms1g -Xmx2g -XX:MaxDirectMemorySize=768m -Djdk.nio.maxCachedBufferSize=262144 -XX:NativeMemoryTracking=summary
           extraEnvVars:
             - name: MALLOC_ARENA_MAX
               value: "2"
