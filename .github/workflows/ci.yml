@@ -129,6 +129,13 @@ jobs:
             -o /usr/local/bin/yq
           chmod +x /usr/local/bin/yq
 
+      - name: Self-test -- checker must fail on fixtures missing a CPU or memory limit (#158)
+        run: |
+          if bash scripts/check-resource-limits.sh scripts/fixtures/check-resource-limits/kubernetes; then
+            echo "::error::checker did not fail on the deliberately-broken fixtures"
+            exit 1
+          fi
+
       - name: Check container CPU/memory limits
         run: scripts/check-resource-limits.sh
 
