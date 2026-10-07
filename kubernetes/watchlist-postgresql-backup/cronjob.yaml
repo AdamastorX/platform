@@ -28,6 +28,10 @@ spec:
   # minutes gives genuine clearance rather than a same-second boundary,
   # for a job whose own real dumps finish in well under a second anyway.
   schedule: "40 3 * * *"
+  # backlog #157: see kubernetes/postgresql-backup/cronjob.yaml's own
+  # comment -- same real incident, same fix, applied identically to all
+  # three backup CronJobs rather than just the one it was first found on.
+  startingDeadlineSeconds: 1800
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -58,6 +62,13 @@ spec:
                   file="${PGDUMP_DIR}/${PGDATABASE}-${stamp}.dump"
                   echo "Dumping ${PGDATABASE}@${PGHOST} -> ${file}"
                   pg_dump --format=custom --no-password --file="${file}"
+                  size="$(stat -c%s "${file}")"
+                  if [ "${size}" -eq 0 ]; then
+                    echo "ERROR: ${file} is 0 bytes -- refusing to treat an empty dump as a successful backup (backlog #157)" >&2
+                    rm -f "${file}"
+                    exit 1
+                  fi
+                  echo "Dump size: ${size} bytes"
                   echo "Pruning dumps older than ${RETENTION_DAYS} days"
                   find "${PGDUMP_DIR}" -maxdepth 1 -name '*.dump' -mtime "+${RETENTION_DAYS}" -print -delete
                   echo "Backup complete:"

@@ -29,6 +29,13 @@ spec:
   # 03:15 (kubernetes/clinvar-postgresql-backup/cronjob.yaml) so the two
   # dumps don't contend for the single node's disk I/O at once.
   schedule: "0 3 * * *"
+  # backlog #157: three consecutive real 0-byte dumps, ~14s apart, right
+  # after the host came back from being powered off for several days --
+  # consistent with the controller firing every missed schedule slot at
+  # once against a database not yet ready to accept connections. Caps how
+  # far in the past a missed run is still worth catching up on; past that,
+  # skip it and wait for the next real slot instead of bursting retries.
+  startingDeadlineSeconds: 1800
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -59,6 +66,13 @@ spec:
                   file="${PGDUMP_DIR}/${PGDATABASE}-${stamp}.dump"
                   echo "Dumping ${PGDATABASE}@${PGHOST} -> ${file}"
                   pg_dump --format=custom --no-password --file="${file}"
+                  size="$(stat -c%s "${file}")"
+                  if [ "${size}" -eq 0 ]; then
+                    echo "ERROR: ${file} is 0 bytes -- refusing to treat an empty dump as a successful backup (backlog #157)" >&2
+                    rm -f "${file}"
+                    exit 1
+                  fi
+                  echo "Dump size: ${size} bytes"
                   echo "Pruning dumps older than ${RETENTION_DAYS} days"
                   find "${PGDUMP_DIR}" -maxdepth 1 -name '*.dump' -mtime "+${RETENTION_DAYS}" -print -delete
                   echo "Backup complete:"
