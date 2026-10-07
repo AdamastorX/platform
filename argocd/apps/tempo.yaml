@@ -44,13 +44,26 @@ spec:
           # for `api`'s JVM cold start, now confirmed for Tempo's own
           # startup compaction burst. Limit raised well above that burst
           # rather than nudged incrementally guess-by-guess.
+          #
+          # 2026-10-07: 768Mi was hit by the same step. Steady state is
+          # ~150-250Mi (48h: min 149, max 598), but from 2026-10-06 22:57Z
+          # the kernel memcg-OOM-killed it nine times in a row at ~783MB
+          # anon-rss, each time right after "completing block" (the log
+          # shows WAL replay complete, then the block flush) -- a crash
+          # loop that feeds itself, because every restart replays the same
+          # WAL. It started minutes after an ingestion run made
+          # clinvar-service emit a burst of spans (tempo_distributor spans
+          # received: ~140/min baseline, 712/min at 22:32Z), so one large
+          # trace in the WAL is the likely trigger; not proven. The node has
+          # ~60GB RAM with ~39GB free: a limit sized for the old host. 1536Mi
+          # (2x) so a block flush can finish; the CPU numbers are untouched.
           resources:
             requests:
               cpu: 20m
-              memory: 192Mi
+              memory: 256Mi
             limits:
               cpu: 200m
-              memory: 768Mi
+              memory: 1536Mi
         # A real PVC, not emptyDir -- trace data has continuity value
         # once persisted, same reasoning as Loki/Prometheus/Postgres.
         persistence:
