@@ -1,9 +1,12 @@
 # backlog #50: alertmanager's egress -- the last of the three real
 # public-egress flows (NCBI, GitHub, this) that were blocked on the
 # DNS-proxy bug, now expressed as `toCIDR` instead of `toFQDNs` (same
-# reasoning as clinvar-service-ncbi-egress.yaml /
-# api-pyroscope-agent-egress.yaml: `toCIDR` is a pure L3 IP match that
-# never touches the broken `rules.dns` L7 DNS-proxy path).
+# reasoning as clinvar-service-ncbi-egress.yaml: `toCIDR` is a pure L3
+# IP match that never touches the broken `rules.dns` L7 DNS-proxy
+# path). api-pyroscope-agent-egress.yaml used to be a third real
+# example of this same reasoning; removed entirely by backlog #159
+# once api's Pyroscope agent jar was baked into its image instead of
+# fetched over that egress at every pod start.
 #
 # alertmanager previously had NO policy at all, deliberately (see the
 # earlier note in kube-state-metrics.yaml's header): its one real

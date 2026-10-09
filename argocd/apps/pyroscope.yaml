@@ -36,20 +36,31 @@
 # something to take on cluster-wide without a slower, more deliberate
 # review than this item's own session budget allows.
 #
-# What's actually used instead: the real Pyroscope Java/Python SDKs,
-# still in-process, but injected via an unprivileged init-container
-# pattern (kubernetes/api/rollout.yaml, kubernetes/clinvar-service/
-# deployment.yaml) instead of baked into the image -- a plain emptyDir
-# volume + an ordinary, non-root init container fetching the real
-# published agent/package, no image rebuild, no elevated privilege
-# anywhere, and no services-repo change needed for the profiling data
-# path itself. Real cost, stated directly, not discovered later: this
-# is a real dependency drift risk (the agent version lives in a
-# platform-repo manifest, not services' own dependency lockfile) and
-# doesn't help the *separate* profile-to-trace span-correlation feature,
-# which genuinely does need a language-specific OTel bridge wired into
-# each service's own tracer setup in code -- stated as a real gap, not
-# assumed working, see grafana.yaml's Tempo datasource comment.
+# What's actually used: the real Pyroscope Java/Python SDKs, in-process.
+# Originally injected via an unprivileged init-container pattern (a
+# plain emptyDir volume + an ordinary, non-root init container fetching
+# the real published agent/package at every pod start) specifically to
+# avoid a services-repo code change and a merged, CI-published image
+# before a single profile could exist, during this item's own session
+# budget -- the real, stated cost at the time was a dependency-drift
+# risk (the agent version living in a platform-repo manifest, not
+# services' own dependency lockfile), not a permanent design choice.
+# Both real instances of that pattern are gone now, for two
+# independently-found reasons, not one coordinated cleanup: clinvar-
+# service moved to build-time baking first (services#69/backlog #122,
+# a live NetworkPolicy incident -- the init container's runtime `pip
+# install` needed broad public-PyPI egress a default-deny policy
+# correctly refused to grant), and api followed later purely to close
+# the dependency-drift gap this paragraph itself named (backlog #159,
+# services#96 + this repo's own kubernetes/api/rollout.yaml) -- no
+# incident forced api's move, the stated risk alone did. Neither
+# service has an init-container/emptyDir profiling mechanism left;
+# both SDKs are baked into their own image at build time now. This
+# doesn't help the *separate* profile-to-trace span-correlation
+# feature, which genuinely does need a language-specific OTel bridge
+# wired into each service's own tracer setup in code -- stated as a
+# real gap, not assumed working, see grafana.yaml's Tempo datasource
+# comment.
 #
 # Microservices mode left off (chart default,
 # architecture.microservices.enabled: false) -- single-binary/monolith,
