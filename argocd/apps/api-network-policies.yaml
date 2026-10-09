@@ -19,10 +19,13 @@ spec:
     repoURL: https://github.com/AdamastorX/platform
     targetRevision: main
     path: kubernetes/api-network-policies
-    # api-pyroscope-agent-egress.yaml was excluded here while it used
-    # toFQDNs/rules.dns (broken in this cluster, backlog #50's DNS-proxy
-    # incident); rewritten as pure-L3 toCIDR (no DNS proxy involved) and
-    # re-included in sync -- see that file's own header for sources.
+    # api-pyroscope-agent-egress.yaml lived here from backlog #50
+    # (first excluded while it used the broken toFQDNs/rules.dns path,
+    # then re-included once rewritten as pure-L3 toCIDR) until backlog
+    # #159 removed the runtime dependency it existed for entirely --
+    # api's Pyroscope agent jar is now baked into the image at build
+    # time, so there is no public egress left for this namespace to
+    # carry a policy for.
   destination:
     server: https://kubernetes.default.svc
     namespace: api
