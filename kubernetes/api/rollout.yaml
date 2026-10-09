@@ -108,78 +108,15 @@ spec:
         adamastorx.io/canary-drill: "2026-08-16-drill-1-clean-promotion"
     spec:
       # backlog #142: pod-level defaults every container inherits unless
-      # it overrides them below -- runAsNonRoot/seccompProfile are safe
-      # to set here since every container in this pod (the curl init
-      # container and the api container) already runs as a non-root user
-      # baked into its own image (see each container's own securityContext
-      # comment). No pod-level runAsUser/runAsGroup: the two containers
-      # have two different image-default UIDs (curl_user vs app's 10001),
-      # so each pins its own explicitly instead of one pod-wide value
-      # papering over that difference.
+      # it overrides them below -- safe to set here since the (now only)
+      # container in this pod already runs as a non-root user baked into
+      # its own image (see that container's own securityContext comment).
+      # No pod-level runAsUser/runAsGroup: pinned explicitly on the
+      # container instead.
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
-      # backlog #57: fetches the real, published Pyroscope Java agent jar
-      # (grafana/pyroscope-java v2.8.0, github release asset) into a
-      # shared emptyDir -- an unprivileged init-container/agent-injection
-      # pattern, not a rebuilt image and not a privileged DaemonSet
-      # attaching from outside the container (see argocd/apps/
-      # pyroscope.yaml's own comment for why that alternative was
-      # rejected). curlimages/curl runs as its own non-root user by
-      # default; nothing here needs root or an elevated capability.
-      initContainers:
-        - name: pyroscope-agent-fetch
-          image: curlimages/curl:8.11.1
-          command:
-            - sh
-            - -c
-            - curl -fsSL -o /pyroscope-agent/pyroscope.jar https://github.com/grafana/pyroscope-java/releases/download/v2.8.0/pyroscope.jar
-          volumeMounts:
-            - name: pyroscope-agent
-              mountPath: /pyroscope-agent
-          # backlog #57 fix: found live -- api's namespace ResourceQuota
-          # (kubernetes/api/resourcequota.yaml) sets a memory quota, which
-          # requires every container (init containers included) to
-          # specify its own requests.memory/limits.memory explicitly --
-          # the namespace's LimitRange only auto-defaults CPU, not memory
-          # (kubernetes/api/limitrange.yaml). Omitting this blocked the
-          # entire Rollout with a real "failed quota" FailedCreate,
-          # confirmed live via `kubectl describe rollout api -n api`.
-          # Small and fixed: this container does one `curl` and exits.
-          resources:
-            requests:
-              cpu: 10m
-              memory: 16Mi
-            limits:
-              cpu: 100m
-              memory: 64Mi
-          # backlog #142: runAsUser/runAsGroup MUST be numeric here. The
-          # first version of this change left them unset on the reasoning
-          # that the image publishes no numeric UID; that was wrong in the
-          # way that matters: the image's baked-in user is the *name*
-          # "curl_user", and with runAsNonRoot the kubelet refuses a name it
-          # cannot resolve to a number ("container has runAsNonRoot and image
-          # has non-numeric user (curl_user), cannot verify user is
-          # non-root", CreateContainerConfigError), so every new api
-          # revision stuck in Init (found live 2026-10-04, the Rollout kept
-          # serving from the stable ReplicaSet). The numbers are in the
-          # image's own /etc/passwd and /etc/group, read from the
-          # curlimages/curl:8.11.1 layers through the registry API:
-          # curl_user:x:100:101 and group curl_group:101. Re-check them when
-          # this image tag is bumped. The one write this container does
-          # (curl -o /pyroscope-agent/pyroscope.jar) targets the emptyDir
-          # below, which stays writable regardless of readOnlyRootFilesystem.
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 100
-            runAsGroup: 101
-            capabilities:
-              drop: ["ALL"]
-            readOnlyRootFilesystem: true
-            seccompProfile:
-              type: RuntimeDefault
       containers:
         - name: api
           # Image tag is the services repo's commit SHA (ADR 0008/0009) —
@@ -223,9 +160,6 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
-            - name: pyroscope-agent
-              mountPath: /pyroscope-agent
-              readOnly: true
             - name: tmp
               mountPath: /tmp
           env:
@@ -237,6 +171,10 @@ spec:
             # Pyroscope's own documented recommendation for accurate
             # async-profiler line numbers, not this project's default.
             - name: JAVA_TOOL_OPTIONS
+              # backlog #159: path points at the jar baked into the image
+              # at build time (services/Dockerfile) instead of an
+              # init-container-fetched emptyDir (backlog #57's original
+              # mechanism, removed).
               # backlog #122: real, live OutOfMemoryError crash loop found
               # 2026-08-12 (70 restarts, exitCode 137, "Java heap space"
               # across Tomcat request threads, the Kafka consumer, and
@@ -252,7 +190,7 @@ spec:
               # bookkeeping) -- explicit and intentional rather than
               # trusting the conservative unconfigured default a second
               # time.
-              value: "-javaagent:/pyroscope-agent/pyroscope.jar -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:MaxRAMPercentage=75.0"
+              value: "-javaagent:/app/pyroscope-agent.jar -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:MaxRAMPercentage=75.0"
             - name: PYROSCOPE_APPLICATION_NAME
               value: api
             - name: PYROSCOPE_SERVER_ADDRESS
@@ -345,8 +283,6 @@ spec:
               cpu: "1"
               memory: 1024Mi
       volumes:
-        - name: pyroscope-agent
-          emptyDir: {}
         # backlog #142: tmpfs (Memory-backed), not disk -- Tomcat's own
         # work dir + Pyroscope's JFR snapshot buffering are both small and
         # short-lived (a few MB at a time, never expected to approach
