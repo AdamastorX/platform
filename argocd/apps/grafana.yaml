@@ -247,6 +247,14 @@ spec:
                 editable: false
                 options:
                   path: /var/lib/grafana/dashboards/health
+              - name: overview
+                orgId: 1
+                folder: 'Overview'
+                type: file
+                disableDeletion: false
+                editable: false
+                options:
+                  path: /var/lib/grafana/dashboards/overview
               # <<< slo-providers
         dashboards:
           golden-signals:
@@ -4936,6 +4944,2027 @@ spec:
                     }
                   ],
                   "description": "Health and saturation signals that are not SLOs."
+                }
+          overview:
+            services-overview:
+              json: |
+                {
+                  "uid": "services-overview",
+                  "title": "Services overview",
+                  "tags": [
+                    "overview",
+                    "services"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "graphTooltip": 1,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "type": "text",
+                      "title": "",
+                      "transparent": true,
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 24,
+                        "h": 2
+                      },
+                      "options": {
+                        "mode": "markdown",
+                        "content": "**What is running and how it is behaving**, across the application services and the platform namespaces. Request metrics cover the services that expose them (api, aggregator, watchlist-service, ...). SLOs are on the **SLOs** dashboard and pass/fail signals on **Service health**."
+                      }
+                    },
+                    {
+                      "id": 2,
+                      "type": "stat",
+                      "title": "Pods running",
+                      "description": "Pods in the Running phase.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 2,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(kube_pod_status_phase{phase=\"Running\"})",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "type": "stat",
+                      "title": "Running but not ready",
+                      "description": "Pods that are Running but failing their readiness check.",
+                      "gridPos": {
+                        "x": 4,
+                        "y": 2,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "red",
+                                "value": 1
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "count((kube_pod_status_ready{condition=\"false\"} == 1) and on(namespace,pod) (kube_pod_status_phase{phase=\"Running\"} == 1)) or vector(0)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 4,
+                      "type": "stat",
+                      "title": "Deployments not fully available",
+                      "description": "Deployments with fewer ready replicas than desired.",
+                      "gridPos": {
+                        "x": 8,
+                        "y": 2,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "red",
+                                "value": 1
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "count(kube_deployment_status_replicas_available < kube_deployment_spec_replicas) or vector(0)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 5,
+                      "type": "stat",
+                      "title": "Restarts (24 h)",
+                      "description": "Container restarts across the cluster in the last 24 hours.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 2,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "#f59e0b",
+                                "value": 1
+                              },
+                              {
+                                "color": "red",
+                                "value": 10
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(increase(kube_pod_container_status_restarts_total[24h]))",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 6,
+                      "type": "stat",
+                      "title": "Requests/s (services)",
+                      "description": "HTTP requests handled by all services, actuator excluded.",
+                      "gridPos": {
+                        "x": 16,
+                        "y": 2,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 2
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[5m]))",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 7,
+                      "type": "stat",
+                      "title": "Server errors/s",
+                      "description": "5xx responses per second across the services.",
+                      "gridPos": {
+                        "x": 20,
+                        "y": 2,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "red",
+                                "value": 0.0001
+                              }
+                            ]
+                          },
+                          "decimals": 3
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(http_server_requests_seconds_count{outcome=\"SERVER_ERROR\"}[5m])) or vector(0)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 20,
+                      "type": "table",
+                      "title": "Every namespace at a glance",
+                      "description": "One row per namespace: running pods, restarts in the last 24 hours, CPU, memory, and memory as a share of its limits.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 6,
+                        "w": 24,
+                        "h": 11
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (namespace)(kube_pod_status_phase{phase=\"Running\"})",
+                          "instant": true,
+                          "format": "table"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (namespace)(round(increase(kube_pod_container_status_restarts_total[24h])))",
+                          "instant": true,
+                          "format": "table"
+                        },
+                        {
+                          "refId": "C",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (namespace)(rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]))",
+                          "instant": true,
+                          "format": "table"
+                        },
+                        {
+                          "refId": "D",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (namespace)(container_memory_working_set_bytes{container!=\"\"})",
+                          "instant": true,
+                          "format": "table"
+                        },
+                        {
+                          "refId": "E",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (namespace)(container_memory_working_set_bytes{container!=\"\"}) / sum by (namespace)(kube_pod_container_resource_limits{resource=\"memory\"})",
+                          "instant": true,
+                          "format": "table"
+                        }
+                      ],
+                      "transformations": [
+                        {
+                          "id": "joinByField",
+                          "options": {
+                            "byField": "namespace",
+                            "mode": "outer"
+                          }
+                        },
+                        {
+                          "id": "organize",
+                          "options": {
+                            "excludeByName": {
+                              "Time": true,
+                              "Time 1": true,
+                              "Time 2": true,
+                              "Time 3": true,
+                              "Time 4": true,
+                              "Time 5": true
+                            },
+                            "renameByName": {
+                              "namespace": "Namespace",
+                              "Value #A": "Pods running",
+                              "Value #B": "Restarts (24h)",
+                              "Value #C": "CPU (cores)",
+                              "Value #D": "Memory",
+                              "Value #E": "Memory of limits"
+                            },
+                            "indexByName": {
+                              "Namespace": 0,
+                              "Pods running": 1,
+                              "Restarts (24h)": 2,
+                              "CPU (cores)": 3,
+                              "Memory": 4,
+                              "Memory of limits": 5
+                            }
+                          }
+                        },
+                        {
+                          "id": "sortBy",
+                          "options": {
+                            "sort": [
+                              {
+                                "field": "Memory",
+                                "desc": true
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "options": {
+                        "showHeader": true,
+                        "cellHeight": "sm"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "custom": {
+                            "align": "left"
+                          }
+                        },
+                        "overrides": [
+                          {
+                            "matcher": {
+                              "id": "byName",
+                              "options": "Pods running"
+                            },
+                            "properties": [
+                              {
+                                "id": "unit",
+                                "value": "none"
+                              },
+                              {
+                                "id": "decimals",
+                                "value": 0
+                              }
+                            ]
+                          },
+                          {
+                            "matcher": {
+                              "id": "byName",
+                              "options": "Restarts (24h)"
+                            },
+                            "properties": [
+                              {
+                                "id": "unit",
+                                "value": "none"
+                              },
+                              {
+                                "id": "decimals",
+                                "value": 0
+                              },
+                              {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                  "type": "color-text"
+                                }
+                              },
+                              {
+                                "id": "thresholds",
+                                "value": {
+                                  "mode": "absolute",
+                                  "steps": [
+                                    {
+                                      "color": "green",
+                                      "value": null
+                                    },
+                                    {
+                                      "color": "#f59e0b",
+                                      "value": 1
+                                    },
+                                    {
+                                      "color": "red",
+                                      "value": 5
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "matcher": {
+                              "id": "byName",
+                              "options": "CPU (cores)"
+                            },
+                            "properties": [
+                              {
+                                "id": "unit",
+                                "value": "none"
+                              },
+                              {
+                                "id": "decimals",
+                                "value": 2
+                              }
+                            ]
+                          },
+                          {
+                            "matcher": {
+                              "id": "byName",
+                              "options": "Memory"
+                            },
+                            "properties": [
+                              {
+                                "id": "unit",
+                                "value": "bytes"
+                              },
+                              {
+                                "id": "decimals",
+                                "value": 0
+                              }
+                            ]
+                          },
+                          {
+                            "matcher": {
+                              "id": "byName",
+                              "options": "Memory of limits"
+                            },
+                            "properties": [
+                              {
+                                "id": "unit",
+                                "value": "percentunit"
+                              },
+                              {
+                                "id": "decimals",
+                                "value": 0
+                              },
+                              {
+                                "id": "custom.cellOptions",
+                                "value": {
+                                  "type": "gauge",
+                                  "mode": "basic"
+                                }
+                              },
+                              {
+                                "id": "max",
+                                "value": 1
+                              },
+                              {
+                                "id": "min",
+                                "value": 0
+                              },
+                              {
+                                "id": "thresholds",
+                                "value": {
+                                  "mode": "absolute",
+                                  "steps": [
+                                    {
+                                      "color": "green",
+                                      "value": null
+                                    },
+                                    {
+                                      "color": "#f59e0b",
+                                      "value": 0.7
+                                    },
+                                    {
+                                      "color": "red",
+                                      "value": 0.9
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "id": 30,
+                      "type": "row",
+                      "title": "Traffic",
+                      "collapsed": false,
+                      "panels": [],
+                      "gridPos": {
+                        "x": 0,
+                        "y": 17,
+                        "w": 24,
+                        "h": 1
+                      }
+                    },
+                    {
+                      "id": 31,
+                      "type": "timeseries",
+                      "title": "Requests per second, by service",
+                      "description": "HTTP request rate per service.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 18,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (job)(rate(http_server_requests_seconds_count{uri!~\"/actuator.*\"}[5m]))",
+                          "legendFormat": "{{job}}"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 32,
+                      "type": "timeseries",
+                      "title": "Response time p95, by service",
+                      "description": "95% of requests finish faster than this.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 18,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "histogram_quantile(0.95, sum by (job, le)(rate(http_server_requests_seconds_bucket{uri!~\"/actuator.*\"}[5m])))",
+                          "legendFormat": "{{job}}"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 33,
+                      "type": "row",
+                      "title": "Resources",
+                      "collapsed": false,
+                      "panels": [],
+                      "gridPos": {
+                        "x": 0,
+                        "y": 26,
+                        "w": 24,
+                        "h": 1
+                      }
+                    },
+                    {
+                      "id": 34,
+                      "type": "timeseries",
+                      "title": "CPU by namespace (cores)",
+                      "description": "The eight namespaces using the most CPU.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 27,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "topk(8, sum by (namespace)(rate(container_cpu_usage_seconds_total{container!=\"\"}[5m])))",
+                          "legendFormat": "{{namespace}}"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 35,
+                      "type": "timeseries",
+                      "title": "Memory by namespace",
+                      "description": "The eight namespaces using the most memory.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 27,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "bytes"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "topk(8, sum by (namespace)(container_memory_working_set_bytes{container!=\"\"}))",
+                          "legendFormat": "{{namespace}}"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 36,
+                      "type": "timeseries",
+                      "title": "JVM heap by service",
+                      "description": "Heap in use per JVM service.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 35,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "bytes"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (job)(jvm_memory_used_bytes{area=\"heap\"})",
+                          "legendFormat": "{{job}}"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 37,
+                      "type": "timeseries",
+                      "title": "Kafka consumer lag",
+                      "description": "Messages waiting per consuming service.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 35,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (job)(kafka_consumer_fetch_manager_records_lag)",
+                          "legendFormat": "{{job}}"
+                        }
+                      ]
+                    }
+                  ],
+                  "description": "What is running and how it behaves: pods, restarts, traffic, resources."
+                }
+            infrastructure-overview:
+              json: |
+                {
+                  "uid": "infrastructure-overview",
+                  "title": "Infrastructure overview",
+                  "tags": [
+                    "overview",
+                    "infrastructure"
+                  ],
+                  "timezone": "browser",
+                  "schemaVersion": 39,
+                  "version": 1,
+                  "editable": false,
+                  "graphTooltip": 1,
+                  "time": {
+                    "from": "now-6h",
+                    "to": "now"
+                  },
+                  "refresh": "30s",
+                  "panels": [
+                    {
+                      "id": 1,
+                      "type": "text",
+                      "title": "",
+                      "transparent": true,
+                      "gridPos": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 24,
+                        "h": 2
+                      },
+                      "options": {
+                        "mode": "markdown",
+                        "content": "**The node and the platform around it**: one machine (Ryzen 7 8845HS, 58 GiB RAM, 1 TB NVMe) on a USB Wi-Fi link, running k3s, Cilium, ArgoCD and the observability stack. Gauges turn amber at 70% and red at 90%. SLOs are on the **SLOs** dashboard and pass/fail signals on **Service health**."
+                      }
+                    },
+                    {
+                      "id": 2,
+                      "type": "gauge",
+                      "title": "CPU busy",
+                      "description": "Average CPU use across all cores, 5-minute rate.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 2,
+                        "w": 4,
+                        "h": 5
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        },
+                        "showThresholdMarkers": true
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percent",
+                          "decimals": 0,
+                          "min": 0,
+                          "noValue": "No data",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "#f59e0b",
+                                "value": 70
+                              },
+                              {
+                                "color": "red",
+                                "value": 90
+                              }
+                            ]
+                          },
+                          "max": 100
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "type": "gauge",
+                      "title": "Memory used",
+                      "description": "Memory in use (total minus available), host-wide.",
+                      "gridPos": {
+                        "x": 4,
+                        "y": 2,
+                        "w": 4,
+                        "h": 5
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        },
+                        "showThresholdMarkers": true
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percent",
+                          "decimals": 0,
+                          "min": 0,
+                          "noValue": "No data",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "#f59e0b",
+                                "value": 70
+                              },
+                              {
+                                "color": "red",
+                                "value": 90
+                              }
+                            ]
+                          },
+                          "max": 100
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 4,
+                      "type": "gauge",
+                      "title": "Disk used (/)",
+                      "description": "Used share of the root filesystem. Alerts fire below 20% and 10% free.",
+                      "gridPos": {
+                        "x": 8,
+                        "y": 2,
+                        "w": 4,
+                        "h": 5
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        },
+                        "showThresholdMarkers": true
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percent",
+                          "decimals": 0,
+                          "min": 0,
+                          "noValue": "No data",
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "#f59e0b",
+                                "value": 80
+                              },
+                              {
+                                "color": "red",
+                                "value": 90
+                              }
+                            ]
+                          },
+                          "max": 100
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "(1 - min(node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})) * 100",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 5,
+                      "type": "stat",
+                      "title": "Load (1 min)",
+                      "description": "Run-queue load average; the host has 16 threads.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 2,
+                        "w": 4,
+                        "h": 5
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 2
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "node_load1",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 6,
+                      "type": "stat",
+                      "title": "Uptime",
+                      "description": "Time since the host last booted.",
+                      "gridPos": {
+                        "x": 16,
+                        "y": 2,
+                        "w": 4,
+                        "h": 5
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "s",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          }
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "time() - node_boot_time_seconds",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 7,
+                      "type": "stat",
+                      "title": "Pods running (limit 110)",
+                      "description": "Running pods on the node; the kubelet limit is 110.",
+                      "gridPos": {
+                        "x": 20,
+                        "y": 2,
+                        "w": 4,
+                        "h": 5
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(kube_pod_status_phase{phase=\"Running\"})",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 10,
+                      "type": "row",
+                      "title": "Load over time",
+                      "collapsed": false,
+                      "panels": [],
+                      "gridPos": {
+                        "x": 0,
+                        "y": 7,
+                        "w": 24,
+                        "h": 1
+                      }
+                    },
+                    {
+                      "id": 11,
+                      "type": "timeseries",
+                      "title": "CPU busy %",
+                      "description": "Host CPU use.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percent"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100",
+                          "legendFormat": "CPU busy"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 12,
+                      "type": "timeseries",
+                      "title": "Memory used %",
+                      "description": "Host memory and swap use.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 8,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "percent"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100",
+                          "legendFormat": "memory used"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "(1 - sum(node_memory_SwapFree_bytes) / sum(node_memory_SwapTotal_bytes)) * 100",
+                          "legendFormat": "swap used"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 13,
+                      "type": "row",
+                      "title": "Network: the Wi-Fi link",
+                      "collapsed": false,
+                      "panels": [],
+                      "gridPos": {
+                        "x": 0,
+                        "y": 16,
+                        "w": 24,
+                        "h": 1
+                      }
+                    },
+                    {
+                      "id": 14,
+                      "type": "timeseries",
+                      "title": "Wi-Fi throughput",
+                      "description": "Bytes per second over the wireless interfaces.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 17,
+                        "w": 8,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "Bps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(node_network_receive_bytes_total{device=~\"wl.*\"}[5m]))",
+                          "legendFormat": "download"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(node_network_transmit_bytes_total{device=~\"wl.*\"}[5m]))",
+                          "legendFormat": "upload"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 15,
+                      "type": "timeseries",
+                      "title": "Link drops (carrier changes per hour)",
+                      "description": "How often the Wi-Fi link lost or regained carrier. The control plane tolerates this poorly (backlog #162).",
+                      "gridPos": {
+                        "x": 8,
+                        "y": 17,
+                        "w": 8,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(changes(node_network_carrier{device=~\"wl.*\"}[1h]))",
+                          "legendFormat": "carrier changes"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 16,
+                      "type": "timeseries",
+                      "title": "Disk I/O",
+                      "description": "Bytes per second read from and written to disk.",
+                      "gridPos": {
+                        "x": 16,
+                        "y": 17,
+                        "w": 8,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "Bps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(node_disk_read_bytes_total[5m]))",
+                          "legendFormat": "read"
+                        },
+                        {
+                          "refId": "B",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(node_disk_written_bytes_total[5m]))",
+                          "legendFormat": "write"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 17,
+                      "type": "row",
+                      "title": "Kubernetes and GitOps",
+                      "collapsed": false,
+                      "panels": [],
+                      "gridPos": {
+                        "x": 0,
+                        "y": 25,
+                        "w": 24,
+                        "h": 1
+                      }
+                    },
+                    {
+                      "id": 18,
+                      "type": "timeseries",
+                      "title": "Running pods per namespace",
+                      "description": "Where the pods live.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 26,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum by (namespace)(kube_pod_status_phase{phase=\"Running\"})",
+                          "legendFormat": "{{namespace}}"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 19,
+                      "type": "stat",
+                      "title": "Apps synced",
+                      "description": "ArgoCD applications whose live state matches git.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 26,
+                        "w": 3,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "count(argocd_app_info{sync_status=\"Synced\"}) or vector(0)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 20,
+                      "type": "stat",
+                      "title": "Apps out of sync",
+                      "description": "ArgoCD applications that differ from git (some are manual-sync by design).",
+                      "gridPos": {
+                        "x": 15,
+                        "y": 26,
+                        "w": 3,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "#f59e0b",
+                                "value": 1
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "count(argocd_app_info{sync_status!=\"Synced\"}) or vector(0)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 21,
+                      "type": "stat",
+                      "title": "Apps healthy",
+                      "description": "ArgoCD applications reporting Healthy.",
+                      "gridPos": {
+                        "x": 18,
+                        "y": 26,
+                        "w": 3,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "count(argocd_app_info{health_status=\"Healthy\"}) or vector(0)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 22,
+                      "type": "stat",
+                      "title": "Apps not healthy",
+                      "description": "ArgoCD applications Degraded, Progressing or Missing.",
+                      "gridPos": {
+                        "x": 21,
+                        "y": 26,
+                        "w": 3,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "green",
+                                "value": null
+                              },
+                              {
+                                "color": "#f59e0b",
+                                "value": 1
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "count(argocd_app_info{health_status!=\"Healthy\"}) or vector(0)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 23,
+                      "type": "stat",
+                      "title": "Certificates: days to first expiry",
+                      "description": "Soonest expiry among cert-manager certificates.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 30,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "red",
+                                "value": null
+                              },
+                              {
+                                "color": "#f59e0b",
+                                "value": 14
+                              },
+                              {
+                                "color": "green",
+                                "value": 30
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "min((certmanager_certificate_expiration_timestamp_seconds - time()) / 86400)",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 24,
+                      "type": "stat",
+                      "title": "Ingress requests/s",
+                      "description": "Requests through Traefik.",
+                      "gridPos": {
+                        "x": 16,
+                        "y": 30,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 2
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(traefik_entrypoint_requests_total[5m]))",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 25,
+                      "type": "stat",
+                      "title": "Metric series (Prometheus)",
+                      "description": "Active time series in the Prometheus head.",
+                      "gridPos": {
+                        "x": 20,
+                        "y": 30,
+                        "w": 4,
+                        "h": 4
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "options": {
+                        "colorMode": "background",
+                        "graphMode": "none",
+                        "textMode": "value",
+                        "justifyMode": "center",
+                        "reduceOptions": {
+                          "calcs": [
+                            "lastNotNull"
+                          ]
+                        }
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "short",
+                          "noValue": "No data",
+                          "mappings": [],
+                          "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                              {
+                                "color": "#3b82f6",
+                                "value": null
+                              }
+                            ]
+                          },
+                          "decimals": 0
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "prometheus_tsdb_head_series",
+                          "instant": true
+                        }
+                      ]
+                    },
+                    {
+                      "id": 26,
+                      "type": "timeseries",
+                      "title": "Pod restarts per hour",
+                      "description": "Container restarts across the cluster.",
+                      "gridPos": {
+                        "x": 0,
+                        "y": 34,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "none"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(increase(kube_pod_container_status_restarts_total[1h]))",
+                          "legendFormat": "all workloads"
+                        }
+                      ]
+                    },
+                    {
+                      "id": 27,
+                      "type": "timeseries",
+                      "title": "Kubernetes API requests/s",
+                      "description": "Requests served by the k3s API server.",
+                      "gridPos": {
+                        "x": 12,
+                        "y": 34,
+                        "w": 12,
+                        "h": 8
+                      },
+                      "datasource": {
+                        "type": "prometheus",
+                        "uid": "prometheus"
+                      },
+                      "fieldConfig": {
+                        "defaults": {
+                          "unit": "reqps"
+                        },
+                        "overrides": []
+                      },
+                      "targets": [
+                        {
+                          "refId": "A",
+                          "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                          },
+                          "expr": "sum(rate(apiserver_request_total[5m]))",
+                          "legendFormat": "API server"
+                        }
+                      ]
+                    }
+                  ],
+                  "description": "The node and the platform: load, memory, disk, network, pods and GitOps."
                 }
           # <<< slo-dashboards
   destination:

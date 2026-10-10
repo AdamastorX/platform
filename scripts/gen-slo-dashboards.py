@@ -313,12 +313,173 @@ def slo_table():
             "refresh": "1m", "panels": panels, "description": "Declared SLOs with objective, window and error budget."}
 
 
+# --- informative overviews (#186): what is running, how loaded, how connected ---
+#
+# Plain information panels, not status: gauges, stats, tables and trend lines.
+# Timeseries panels are kept minimal on purpose (unit + legend only, the same
+# shape as the Golden Signals dashboards): the first SLO dashboard's styled
+# timeseries rendered empty and the cause was never found.
+
+def gauge(pid, x, y, w, h, title, expr, unit, steps, desc, mx=None, dec=0):
+    d = {"unit": unit, "decimals": dec, "min": 0, "noValue": "No data",
+         "thresholds": {"mode": "absolute", "steps": [{"color": c, "value": v} for c, v in steps]}}
+    if mx is not None:
+        d["max"] = mx
+    return {"id": pid, "type": "gauge", "title": title, "description": desc, "gridPos": {"x": x, "y": y, "w": w, "h": h},
+            "datasource": DS, "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdMarkers": True},
+            "fieldConfig": {"defaults": d, "overrides": []},
+            "targets": [{"refId": "A", "datasource": DS, "expr": expr, "instant": True}]}
+
+
+def info_stat(pid, x, y, w, h, title, expr, unit, desc, dec=None, steps=None):
+    """A neutral number (blue) unless thresholds are given."""
+    return stat(pid, x, y, w, h, title, expr, unit, steps or [("#3b82f6", None)], desc, decimals=dec, instant=True)
+
+
+def ts(pid, x, y, w, title, series, unit, desc, h=8):
+    return {"id": pid, "type": "timeseries", "title": title, "description": desc, "gridPos": {"x": x, "y": y, "w": w, "h": h},
+            "datasource": DS, "fieldConfig": {"defaults": {"unit": unit}, "overrides": []},
+            "targets": [{"refId": chr(65 + i), "datasource": DS, "expr": e, "legendFormat": l} for i, (e, l) in enumerate(series)]}
+
+
+def header(text_md, h=2):
+    return {"id": 1, "type": "text", "title": "", "transparent": True, "gridPos": {"x": 0, "y": 0, "w": 24, "h": h},
+            "options": {"mode": "markdown", "content": text_md}}
+
+
+def row(pid, y, title):
+    return {"id": pid, "type": "row", "title": title, "collapsed": False, "panels": [], "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}}
+
+
+def dash(uid, title, tags, panels, desc):
+    return {"uid": uid, "title": title, "tags": tags, "timezone": "browser", "schemaVersion": 39, "version": 1, "editable": False,
+            "graphTooltip": 1, "time": {"from": "now-6h", "to": "now"}, "refresh": "30s", "panels": panels, "description": desc}
+
+
+GA = [(GREEN, None), (AMBER, 70), (RED, 90)]
+NODE_CPU = '100 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100'
+NODE_MEM = '(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100'
+NODE_DISK = '(1 - min(node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100'
+
+
+def infrastructure_overview():
+    P = [header("**The node and the platform around it**: one machine (Ryzen 7 8845HS, 58 GiB RAM, 1 TB NVMe) on a USB Wi-Fi "
+                "link, running k3s, Cilium, ArgoCD and the observability stack. Gauges turn amber at 70% and red at 90%. "
+                "SLOs are on the **SLOs** dashboard and pass/fail signals on **Service health**.")]
+    P += [gauge(2, 0, 2, 4, 5, "CPU busy", NODE_CPU, "percent", GA, "Average CPU use across all cores, 5-minute rate.", 100),
+          gauge(3, 4, 2, 4, 5, "Memory used", NODE_MEM, "percent", GA, "Memory in use (total minus available), host-wide.", 100),
+          gauge(4, 8, 2, 4, 5, "Disk used (/)", NODE_DISK, "percent", [(GREEN, None), (AMBER, 80), (RED, 90)],
+                "Used share of the root filesystem. Alerts fire below 20% and 10% free.", 100),
+          info_stat(5, 12, 2, 4, 5, "Load (1 min)", "node_load1", "none", "Run-queue load average; the host has 16 threads.", 2),
+          info_stat(6, 16, 2, 4, 5, "Uptime", "time() - node_boot_time_seconds", "s", "Time since the host last booted."),
+          info_stat(7, 20, 2, 4, 5, "Pods running (limit 110)", 'sum(kube_pod_status_phase{phase="Running"})', "none",
+                    "Running pods on the node; the kubelet limit is 110.", 0)]
+    P += [row(10, 7, "Load over time"),
+          ts(11, 0, 8, 12, "CPU busy %", [(NODE_CPU, "CPU busy")], "percent", "Host CPU use."),
+          ts(12, 12, 8, 12, "Memory used %", [(NODE_MEM, "memory used"),
+                                              ('(1 - sum(node_memory_SwapFree_bytes) / sum(node_memory_SwapTotal_bytes)) * 100', "swap used")],
+             "percent", "Host memory and swap use."),
+          row(13, 16, "Network: the Wi-Fi link"),
+          ts(14, 0, 17, 8, "Wi-Fi throughput", [('sum(rate(node_network_receive_bytes_total{device=~"wl.*"}[5m]))', "download"),
+                                                 ('sum(rate(node_network_transmit_bytes_total{device=~"wl.*"}[5m]))', "upload")],
+             "Bps", "Bytes per second over the wireless interfaces."),
+          ts(15, 8, 17, 8, "Link drops (carrier changes per hour)", [('sum(changes(node_network_carrier{device=~"wl.*"}[1h]))', "carrier changes")],
+             "none", "How often the Wi-Fi link lost or regained carrier. The control plane tolerates this poorly (backlog #162)."),
+          ts(16, 16, 17, 8, "Disk I/O", [('sum(rate(node_disk_read_bytes_total[5m]))', "read"), ('sum(rate(node_disk_written_bytes_total[5m]))', "write")],
+             "Bps", "Bytes per second read from and written to disk."),
+          row(17, 25, "Kubernetes and GitOps"),
+          ts(18, 0, 26, 12, "Running pods per namespace", [('sum by (namespace)(kube_pod_status_phase{phase="Running"})', "{{namespace}}")],
+             "none", "Where the pods live."),
+          info_stat(19, 12, 26, 3, 4, "Apps synced", 'count(argocd_app_info{sync_status="Synced"}) or vector(0)', "none", "ArgoCD applications whose live state matches git.", 0),
+          info_stat(20, 15, 26, 3, 4, "Apps out of sync", 'count(argocd_app_info{sync_status!="Synced"}) or vector(0)', "none",
+                    "ArgoCD applications that differ from git (some are manual-sync by design).", 0, [(GREEN, None), (AMBER, 1)]),
+          info_stat(21, 18, 26, 3, 4, "Apps healthy", 'count(argocd_app_info{health_status="Healthy"}) or vector(0)', "none", "ArgoCD applications reporting Healthy.", 0),
+          info_stat(22, 21, 26, 3, 4, "Apps not healthy", 'count(argocd_app_info{health_status!="Healthy"}) or vector(0)', "none",
+                    "ArgoCD applications Degraded, Progressing or Missing.", 0, [(GREEN, None), (AMBER, 1)]),
+          info_stat(23, 12, 30, 4, 4, "Certificates: days to first expiry", "min((certmanager_certificate_expiration_timestamp_seconds - time()) / 86400)",
+                    "none", "Soonest expiry among cert-manager certificates.", 0, [(RED, None), (AMBER, 14), (GREEN, 30)]),
+          info_stat(24, 16, 30, 4, 4, "Ingress requests/s", "sum(rate(traefik_entrypoint_requests_total[5m]))", "reqps", "Requests through Traefik.", 2),
+          info_stat(25, 20, 30, 4, 4, "Metric series (Prometheus)", "prometheus_tsdb_head_series", "short", "Active time series in the Prometheus head.", 0),
+          ts(26, 0, 34, 12, "Pod restarts per hour", [('sum(increase(kube_pod_container_status_restarts_total[1h]))', "all workloads")],
+             "none", "Container restarts across the cluster."),
+          ts(27, 12, 34, 12, "Kubernetes API requests/s", [('sum(rate(apiserver_request_total[5m]))', "API server")],
+             "reqps", "Requests served by the k3s API server.")]
+    return dash("infrastructure-overview", "Infrastructure overview", ["overview", "infrastructure"], P,
+                "The node and the platform: load, memory, disk, network, pods and GitOps.")
+
+
+def services_overview():
+    ns = lambda e: f"sum by (namespace)({e})"
+    tq = lambda ref, e: table_query(ref, e)
+    table = {
+        "id": 20, "type": "table", "title": "Every namespace at a glance",
+        "description": "One row per namespace: running pods, restarts in the last 24 hours, CPU, memory, and memory as a share of its limits.",
+        "gridPos": {"x": 0, "y": 6, "w": 24, "h": 11}, "datasource": DS,
+        "targets": [tq("A", ns('kube_pod_status_phase{phase="Running"}')),
+                    tq("B", ns('round(increase(kube_pod_container_status_restarts_total[24h]))')),
+                    tq("C", ns('rate(container_cpu_usage_seconds_total{container!=""}[5m])')),
+                    tq("D", ns('container_memory_working_set_bytes{container!=""}')),
+                    tq("E", ns('container_memory_working_set_bytes{container!=""}') + ' / ' + ns('kube_pod_container_resource_limits{resource="memory"}'))],
+        "transformations": [
+            {"id": "joinByField", "options": {"byField": "namespace", "mode": "outer"}},
+            {"id": "organize", "options": {
+                "excludeByName": {f"Time{suf}": True for suf in ["", " 1", " 2", " 3", " 4", " 5"]},
+                "renameByName": {"namespace": "Namespace", "Value #A": "Pods running", "Value #B": "Restarts (24h)", "Value #C": "CPU (cores)",
+                                 "Value #D": "Memory", "Value #E": "Memory of limits"},
+                "indexByName": {"Namespace": 0, "Pods running": 1, "Restarts (24h)": 2, "CPU (cores)": 3, "Memory": 4, "Memory of limits": 5}}},
+            {"id": "sortBy", "options": {"sort": [{"field": "Memory", "desc": True}]}}],
+        "options": {"showHeader": True, "cellHeight": "sm"},
+        "fieldConfig": {"defaults": {"custom": {"align": "left"}}, "overrides": [
+            {"matcher": {"id": "byName", "options": "Pods running"}, "properties": [{"id": "unit", "value": "none"}, {"id": "decimals", "value": 0}]},
+            {"matcher": {"id": "byName", "options": "Restarts (24h)"}, "properties": [
+                {"id": "unit", "value": "none"}, {"id": "decimals", "value": 0},
+                {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+                {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "#f59e0b", "value": 1}, {"color": "red", "value": 5}]}}]},
+            {"matcher": {"id": "byName", "options": "CPU (cores)"}, "properties": [{"id": "unit", "value": "none"}, {"id": "decimals", "value": 2}]},
+            {"matcher": {"id": "byName", "options": "Memory"}, "properties": [{"id": "unit", "value": "bytes"}, {"id": "decimals", "value": 0}]},
+            {"matcher": {"id": "byName", "options": "Memory of limits"}, "properties": [
+                {"id": "unit", "value": "percentunit"}, {"id": "decimals", "value": 0},
+                {"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "basic"}}, {"id": "max", "value": 1}, {"id": "min", "value": 0},
+                {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "#f59e0b", "value": 0.7}, {"color": "red", "value": 0.9}]}}]}]}}
+    HTTP = 'http_server_requests_seconds_count{uri!~"/actuator.*"}'
+    P = [header("**What is running and how it is behaving**, across the application services and the platform namespaces. "
+                "Request metrics cover the services that expose them (api, aggregator, watchlist-service, ...). "
+                "SLOs are on the **SLOs** dashboard and pass/fail signals on **Service health**.")]
+    P += [info_stat(2, 0, 2, 4, 4, "Pods running", 'sum(kube_pod_status_phase{phase="Running"})', "none", "Pods in the Running phase.", 0),
+          info_stat(3, 4, 2, 4, 4, "Running but not ready",
+                    'count((kube_pod_status_ready{condition="false"} == 1) and on(namespace,pod) (kube_pod_status_phase{phase="Running"} == 1)) or vector(0)',
+                    "none", "Pods that are Running but failing their readiness check.", 0, [(GREEN, None), (RED, 1)]),
+          info_stat(4, 8, 2, 4, 4, "Deployments not fully available",
+                    "count(kube_deployment_status_replicas_available < kube_deployment_spec_replicas) or vector(0)", "none",
+                    "Deployments with fewer ready replicas than desired.", 0, [(GREEN, None), (RED, 1)]),
+          info_stat(5, 12, 2, 4, 4, "Restarts (24 h)", "sum(increase(kube_pod_container_status_restarts_total[24h]))", "none",
+                    "Container restarts across the cluster in the last 24 hours.", 0, [(GREEN, None), (AMBER, 1), (RED, 10)]),
+          info_stat(6, 16, 2, 4, 4, "Requests/s (services)", f"sum(rate({HTTP}[5m]))", "reqps", "HTTP requests handled by all services, actuator excluded.", 2),
+          info_stat(7, 20, 2, 4, 4, "Server errors/s", f'sum(rate(http_server_requests_seconds_count{{outcome="SERVER_ERROR"}}[5m])) or vector(0)',
+                    "reqps", "5xx responses per second across the services.", 3, [(GREEN, None), (RED, 0.0001)]),
+          table,
+          row(30, 17, "Traffic"),
+          ts(31, 0, 18, 12, "Requests per second, by service", [(f"sum by (job)(rate({HTTP}[5m]))", "{{job}}")], "reqps", "HTTP request rate per service."),
+          ts(32, 12, 18, 12, "Response time p95, by service",
+             [('histogram_quantile(0.95, sum by (job, le)(rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[5m])))', "{{job}}")],
+             "s", "95% of requests finish faster than this."),
+          row(33, 26, "Resources"),
+          ts(34, 0, 27, 12, "CPU by namespace (cores)", [('topk(8, sum by (namespace)(rate(container_cpu_usage_seconds_total{container!=""}[5m])))', "{{namespace}}")],
+             "none", "The eight namespaces using the most CPU."),
+          ts(35, 12, 27, 12, "Memory by namespace", [('topk(8, sum by (namespace)(container_memory_working_set_bytes{container!=""}))', "{{namespace}}")],
+             "bytes", "The eight namespaces using the most memory."),
+          ts(36, 0, 35, 12, "JVM heap by service", [('sum by (job)(jvm_memory_used_bytes{area="heap"})', "{{job}}")], "bytes", "Heap in use per JVM service."),
+          ts(37, 12, 35, 12, "Kafka consumer lag", [('sum by (job)(kafka_consumer_fetch_manager_records_lag)', "{{job}}")], "none",
+             "Messages waiting per consuming service.")]
+    return dash("services-overview", "Services overview", ["overview", "services"], P,
+                "What is running and how it behaves: pods, restarts, traffic, resources.")
+
+
 # folder title -> {dashboard key: builder}; one Grafana provider per set
 SETS = {"slo": ("SLO", {"slo-table": slo_table}),
-        "health": ("Service health", {"service-health": service_health})}
+        "health": ("Service health", {"service-health": service_health}),
+        "overview": ("Overview", {"services-overview": services_overview, "infrastructure-overview": infrastructure_overview})}
 
-
-# --- splice into grafana.yaml ------------------------------------------------
 
 def render_block():
     out = [DASH_BEGIN]
