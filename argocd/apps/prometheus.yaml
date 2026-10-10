@@ -809,7 +809,151 @@ spec:
         #     services. Check that backend's own pod first. Deliberately
         #     does not cover Mimir (see #135, still an open owner
         #     decision) -- see observability/runbooks/TelemetryBackendDown.md.
+        # backlog #177 (M20): the SLOs ADR 0020's 2026-10-10 addendum declares,
+        # computed once here so the dashboard (#178) and the budget alert
+        # (#181) read the same numbers. 7d operational window; the 28d
+        # siblings are added from ~2026-10-31 when the history exists. An SLO
+        # with fewer than 10/(1-objective) valid events in the window yields
+        # NO compliance series (shown as "insufficient events"), never a ratio.
+        # Objectives live only in slo:objective:ratio.
         serverFiles:
+          recording_rules.yml:
+            groups:
+              - name: adamastorx-slo-7d
+                interval: 5m
+                rules:
+                  - record: slo:good:increase7d
+                    expr: >-
+                      sum(increase(http_server_requests_seconds_count{job="api", uri!~"/actuator.*", outcome!="SERVER_ERROR"}[7d]))
+                    labels:
+                      slo: api-availability
+                      service: api
+                  - record: slo:good:increase7d
+                    expr: >-
+                      sum(increase(http_server_requests_seconds_bucket{job="api", uri!~"/actuator.*", le="0.536870911"}[7d]))
+                    labels:
+                      slo: api-latency
+                      service: api
+                  - record: slo:good:increase7d
+                    expr: >-
+                      sum(increase(aggregator_price_freshness_seconds_bucket{source="WEBSOCKET", le="30.0"}[7d]))
+                    labels:
+                      slo: price-freshness
+                      service: aggregator
+                  - record: slo:good:increase7d
+                    expr: >-
+                      sum(increase(news_ingestor_feed_poll_total{outcome="succeeded"}[7d]))
+                    labels:
+                      slo: news-polls
+                      service: news-ingestor
+                  - record: slo:good:increase7d
+                    expr: >-
+                      sum(increase(market_data_ticks_published_total[7d]))
+                    labels:
+                      slo: tick-publish
+                      service: market-data-ingestor
+                  - record: slo:good:increase7d
+                    expr: >-
+                      sum(increase(http_server_requests_seconds_count{job="aggregator", uri=~"/aggregates.*", outcome!="SERVER_ERROR"}[7d]))
+                    labels:
+                      slo: aggregates-availability
+                      service: aggregator
+                  - record: slo:good:increase7d
+                    expr: >-
+                      sum(increase(sentiment_analyzer_articles_consumed_total[7d])) - (sum(increase(sentiment_analyzer_consume_errors_total[7d])) or vector(0)) - (sum(increase(sentiment_analyzer_publish_errors_total[7d])) or vector(0))
+                    labels:
+                      slo: sentiment-scoring
+                      service: sentiment-analyzer
+                  - record: slo:valid:increase7d
+                    expr: >-
+                      sum(increase(http_server_requests_seconds_count{job="api", uri!~"/actuator.*"}[7d]))
+                    labels:
+                      slo: api-availability
+                      service: api
+                  - record: slo:valid:increase7d
+                    expr: >-
+                      sum(increase(http_server_requests_seconds_count{job="api", uri!~"/actuator.*"}[7d]))
+                    labels:
+                      slo: api-latency
+                      service: api
+                  - record: slo:valid:increase7d
+                    expr: >-
+                      sum(increase(aggregator_price_freshness_seconds_count{source="WEBSOCKET"}[7d]))
+                    labels:
+                      slo: price-freshness
+                      service: aggregator
+                  - record: slo:valid:increase7d
+                    expr: >-
+                      sum(increase(news_ingestor_feed_poll_total[7d]))
+                    labels:
+                      slo: news-polls
+                      service: news-ingestor
+                  - record: slo:valid:increase7d
+                    expr: >-
+                      sum(increase(market_data_ticks_published_total[7d])) + (sum(increase(market_data_ticks_publish_failed_total[7d])) or vector(0))
+                    labels:
+                      slo: tick-publish
+                      service: market-data-ingestor
+                  - record: slo:valid:increase7d
+                    expr: >-
+                      sum(increase(http_server_requests_seconds_count{job="aggregator", uri=~"/aggregates.*"}[7d]))
+                    labels:
+                      slo: aggregates-availability
+                      service: aggregator
+                  - record: slo:valid:increase7d
+                    expr: >-
+                      sum(increase(sentiment_analyzer_articles_consumed_total[7d]))
+                    labels:
+                      slo: sentiment-scoring
+                      service: sentiment-analyzer
+                  - record: slo:objective:ratio
+                    expr: >-
+                      vector(0.995)
+                    labels:
+                      slo: api-availability
+                      service: api
+                  - record: slo:objective:ratio
+                    expr: >-
+                      vector(0.99)
+                    labels:
+                      slo: api-latency
+                      service: api
+                  - record: slo:objective:ratio
+                    expr: >-
+                      vector(0.99)
+                    labels:
+                      slo: price-freshness
+                      service: aggregator
+                  - record: slo:objective:ratio
+                    expr: >-
+                      vector(0.99)
+                    labels:
+                      slo: news-polls
+                      service: news-ingestor
+                  - record: slo:objective:ratio
+                    expr: >-
+                      vector(0.999)
+                    labels:
+                      slo: tick-publish
+                      service: market-data-ingestor
+                  - record: slo:objective:ratio
+                    expr: >-
+                      vector(0.995)
+                    labels:
+                      slo: aggregates-availability
+                      service: aggregator
+                  - record: slo:objective:ratio
+                    expr: >-
+                      vector(0.99)
+                    labels:
+                      slo: sentiment-scoring
+                      service: sentiment-analyzer
+                  - record: slo:compliance:ratio7d
+                    expr: >-
+                      clamp_max((slo:good:increase7d / on(slo) slo:valid:increase7d) and on(slo) (slo:valid:increase7d >= on(slo) (10 / (1 - slo:objective:ratio))), 1)
+                  - record: slo:error_budget_remaining:ratio7d
+                    expr: >-
+                      1 - (1 - slo:compliance:ratio7d) / on(slo) (1 - slo:objective:ratio)
           alerting_rules.yml:
             groups:
               - name: adamastorx-slos
