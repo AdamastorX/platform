@@ -90,6 +90,9 @@ jobs:
       - name: Render Helm-sourced Applications
         run: scripts/render-helm-charts.sh rendered-charts
 
+      - name: SLO dashboards match their generator (#177)
+        run: python3 scripts/gen-slo-dashboards.py --check
+
       - name: kubeconform (rendered chart output)
         run: >
           kubeconform -strict -summary -ignore-missing-schemas
