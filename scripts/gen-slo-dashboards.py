@@ -27,115 +27,194 @@ DS = {"type": "prometheus", "uid": "prometheus"}
 GREY = "#6b7280"
 
 
-# --- panel helpers: every SLO dashboard is built from these -----------------
+# --- the SLO catalogue: one entry per SLO, one tile each -------------------
+#
+# Every expression is the alert rule's own expression (or, where no alert
+# exists, the ADR 0020 SLI) over a fixed 5m window, reduced to ONE series.
+# `red` is the breach boundary the tile and the counters share; `amber` is the
+# "meeting the target but close" boundary. dir "high": higher is better (red
+# below `red`); dir "low": lower is better (red at or above `red`).
 
-def text(pid, x, y, w, h, md):
-    return {"id": pid, "type": "text", "title": "", "gridPos": {"x": x, "y": y, "w": w, "h": h},
-            "options": {"mode": "markdown", "content": md}, "transparent": True}
+def ratio(err, total, w="5m"):
+    return f"1 - ((sum(rate({err}[{w}])) or vector(0)) / (sum(rate({total}[{w}])) > 0))"
 
-
-def tile(pid, x, y, title, expr, unit, steps, desc, decimals=None, mappings=None, no_value="No data"):
-    """A big status tile: coloured background, value, nothing else."""
-    d = {"unit": unit, "noValue": no_value,
-         "thresholds": {"mode": "absolute", "steps": [{"color": c, "value": v} for c, v in steps]},
-         "mappings": mappings or []}
-    if decimals is not None:
-        d["decimals"] = decimals
-    return {
-        "id": pid, "type": "stat", "title": title, "description": desc,
-        "gridPos": {"x": x, "y": y, "w": 6, "h": 6}, "datasource": DS,
-        "options": {"colorMode": "background", "graphMode": "none", "textMode": "value",
-                    "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"]}},
-        "fieldConfig": {"defaults": d, "overrides": []},
-        "targets": [{"refId": "A", "datasource": DS, "expr": expr, "instant": True}],
-    }
-
-
-def no_traffic():
-    # NaN/empty (no requests in the window) is its own grey state, never green.
-    return [{"type": "special", "options": {"match": "null+nan",
-                                             "result": {"text": "No traffic", "color": GREY}}}]
-
-
-def trend(pid, x, y, title, expr, unit, desc, line=None, legend="", w=8):
-    d = {"unit": unit, "custom": {"lineWidth": 2, "fillOpacity": 12, "showPoints": "never"}}
-    if line is not None:
-        d["custom"]["thresholdsStyle"] = {"mode": "line"}
-        d["thresholds"] = {"mode": "absolute", "steps": [{"color": "transparent", "value": None},
-                                                           {"color": "red", "value": line}]}
-    return {
-        "id": pid, "type": "timeseries", "title": title, "description": desc,
-        "gridPos": {"x": x, "y": y, "w": w, "h": 8}, "datasource": DS,
-        "options": {"legend": {"displayMode": "hidden"}, "tooltip": {"mode": "single"}},
-        "fieldConfig": {"defaults": d, "overrides": []},
-        "targets": [{"refId": "A", "datasource": DS, "expr": expr, "legendFormat": legend}],
-    }
-
-
-def dashboard(uid, title, tags, panels, links):
-    return {"uid": uid, "title": title, "tags": ["slo"] + tags, "timezone": "browser",
-            "schemaVersion": 39, "version": 1, "editable": False, "graphTooltip": 1,
-            "time": {"from": "now-6h", "to": "now"}, "refresh": "30s", "panels": panels,
-            "links": [{"title": t, "type": "link", "url": u, "icon": "dashboard"} for t, u in links]}
-
-
-GREEN_AMBER_RED_HIGH_IS_GOOD = lambda red_below, amber_below: [
-    ("red", None), ("#f59e0b", red_below), ("green", amber_below)]
-
-
-# --- api: the reference dashboard (#177) ------------------------------------
 
 API_TOTAL = 'http_server_requests_seconds_count{job="api", uri!~"/actuator.*"}'
 API_ERR = 'http_server_requests_seconds_count{job="api", outcome="SERVER_ERROR", uri!~"/actuator.*"}'
-LOOKUP_TOTAL = 'http_server_requests_seconds_count{job="api", uri="/variants/lookup"}'
-LOOKUP_ERR = 'http_server_requests_seconds_count{job="api", outcome="SERVER_ERROR", uri="/variants/lookup"}'
-API_BUCKET = 'http_server_requests_seconds_bucket{job="api", uri!~"/actuator.*"}'
+LK_TOTAL = 'http_server_requests_seconds_count{job="api", uri="/variants/lookup"}'
+LK_ERR = 'http_server_requests_seconds_count{job="api", outcome="SERVER_ERROR", uri="/variants/lookup"}'
+AGG_TOTAL = 'http_server_requests_seconds_count{job="aggregator", uri=~"/aggregates.*"}'
+AGG_ERR = 'http_server_requests_seconds_count{job="aggregator", outcome="SERVER_ERROR", uri=~"/aggregates.*"}'
+
+CLINVAR, MARKET, PLATFORM = "ClinVar variant lookup", "Market-data pipeline", "Platform"
+
+SLOS = [
+    # id, section, title, expr, unit, dir, amber, red, description, extra
+    dict(id="api-ok", sec=CLINVAR, title="API requests succeeding", unit="percentunit", dir="high", amber=0.99, red=0.95,
+         expr=ratio(API_ERR, API_TOTAL), dec=1, nv="No traffic", link="api-golden-signals",
+         desc="Share of api requests without a 5xx over 5 minutes. Target 95% (alert ApiHighErrorRate)."),
+    dict(id="lookup-ok", sec=CLINVAR, title="Variant lookups succeeding", unit="percentunit", dir="high", amber=0.97, red=0.90,
+         expr=ratio(LK_ERR, LK_TOTAL), dec=1, nv="No traffic", link="api-golden-signals",
+         desc="Share of GET /variants/lookup calls (the clinvar-service dependency) without a 5xx over 5 minutes. Target 90% (alert ApiVariantsLookupHighErrorRate)."),
+    dict(id="api-p95", sec=CLINVAR, title="API response time (p95)", unit="s", dir="low", amber=0.7, red=1.0,
+         expr='histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job="api", uri!~"/actuator.*"}[5m])) by (le))',
+         dec=2, nv="No traffic", link="api-golden-signals",
+         desc="95% of requests finish faster than this. Target under 1 s: the canary's api-slo-check threshold, preliminary (ADR 0020 addendum 2026-08-17); there is no alert on it."),
+    dict(id="workers-ok", sec=CLINVAR, title="Workers processing without errors", unit="percentunit", dir="high", amber=0.99, red=0.95,
+         expr='1 - ((sum(rate(spring_kafka_listener_seconds_count{job="workers", error!="none"}[5m])) or vector(0)) / (sum(rate(spring_kafka_listener_seconds_count{job="workers"}[5m])) > 0))',
+         dec=1, nv="No traffic", link="workers-golden-signals",
+         desc="Share of work-items messages handled without an error over 5 minutes. Target 95% (alert WorkersListenerErrorRate)."),
+    dict(id="workers-lag", sec=CLINVAR, title="Workers backlog", unit="short", dir="low", amber=100, red=500,
+         expr='sum(kafka_consumer_fetch_manager_records_lag{job="workers"})', dec=0, nv="No data", link="workers-golden-signals",
+         desc="Messages waiting for the workers. Alert WorkersConsumerLagHigh fires above 500."),
+    dict(id="clinvar-fresh", sec=CLINVAR, title="ClinVar data refreshed (last 8 days)", unit="none", dir="high", amber=1, red=1,
+         expr='sum(increase(clinvar_ingestion_jobs_total{job="clinvar-service", status="succeeded"}[8d])) >= bool 1',
+         kind="bool", on="Fresh", off="Stale", nv="No data", link="clinvar-service-golden-signals",
+         desc="Whether a ClinVar ingestion succeeded in the last 8 days (alert ClinVarIngestionFreshnessBreach)."),
+    dict(id="dlq", sec=CLINVAR, title="Failed notifications waiting", unit="short", dir="low", amber=0.5, red=0.5,
+         expr='sum(watchlist_delivery_dlq_depth{job="watchlist-service"})', kind="zero", zero="None", dec=0, nv="No data",
+         link="watchlist-service-golden-signals",
+         desc="Watchlist notifications that exhausted their retries. Any value above 0 fires WatchlistDlqDepthHigh."),
+
+    dict(id="feed-live", sec=MARKET, title="Market feed live", unit="none", dir="high", amber=1, red=1,
+         expr='1 - max(market_data_stale_feed{job="market-data-ingestor"})', kind="bool", on="Live", off="Stale", nv="No data",
+         link="market-data-ingestor-golden-signals",
+         desc="Whether market-data-ingestor is receiving ticks when it should (alert MarketDataStaleFeed)."),
+    dict(id="news-ok", sec=MARKET, title="News feeds polled OK", unit="percentunit", dir="high", amber=0.99, red=0.90,
+         expr='sum(increase(news_ingestor_feed_poll_total{outcome="succeeded"}[1h])) / (sum(increase(news_ingestor_feed_poll_total[1h])) > 0)',
+         dec=1, nv="No data", link="news-ingestor-golden-signals",
+         desc="Share of feed polls that succeeded in the last hour. ADR 0020 SLI; the 90% bar is preliminary and has no alert."),
+    dict(id="sent-ok", sec=MARKET, title="Sentiment scoring without errors", unit="percentunit", dir="high", amber=0.99, red=0.95,
+         expr='1 - ((sum(increase(sentiment_analyzer_consume_errors_total[1h])) + sum(increase(sentiment_analyzer_publish_errors_total[1h]))) / (sum(increase(sentiment_analyzer_articles_consumed_total[1h])) > 0))',
+         dec=1, nv="No traffic", link="sentiment-analyzer-golden-signals",
+         desc="Articles consumed and published without an error in the last hour. ADR 0020 SLI; the 95% bar is preliminary and has no alert."),
+    dict(id="sent-lag", sec=MARKET, title="Sentiment backlog", unit="short", dir="low", amber=10, red=20,
+         expr='sum(sentiment_analyzer_consumer_lag{job="sentiment-analyzer"})', dec=0, nv="No data",
+         link="sentiment-analyzer-golden-signals", desc="Articles waiting to be scored. Alert SentimentAnalyzerConsumerLagHigh fires above 20."),
+    dict(id="agg-ok", sec=MARKET, title="Aggregates API succeeding", unit="percentunit", dir="high", amber=0.99, red=0.95,
+         expr=ratio(AGG_ERR, AGG_TOTAL), dec=1, nv="No traffic", link="aggregator-golden-signals",
+         desc="Share of GET /aggregates calls without a 5xx over 5 minutes. ADR 0020 SLI; the 95% bar is preliminary and has no alert."),
+    dict(id="agg-lag", sec=MARKET, title="Aggregator backlog", unit="short", dir="low", amber=10, red=20,
+         expr='sum(kafka_consumer_fetch_manager_records_lag{job="aggregator", topic=~"stock\\\\.price\\\\.tick|news\\\\.sentiment\\\\.scored"})',
+         dec=0, nv="No data", link="aggregator-golden-signals",
+         desc="Records waiting for the aggregator. Alert AggregatorConsumerLagHigh fires above 20."),
+    dict(id="fresh", sec=MARKET, title="Price freshness (p95)", unit="s", dir="low", amber=20, red=30,
+         expr='histogram_quantile(0.95, sum(rate(aggregator_price_freshness_seconds_bucket{source="WEBSOCKET"}[10m])) by (le))',
+         dec=1, nv="No data", link="aggregator-golden-signals",
+         desc="How old a real trade is when the pipeline has processed it. Target under 30 s (alert AggregatorPriceFreshnessSlow). Shows No data when the market is closed."),
+
+    dict(id="disk", sec=PLATFORM, title="Node disk free", unit="percentunit", dir="high", amber=0.20, red=0.10,
+         expr='min(node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})', dec=0, nv="No data",
+         desc="Free space on the node's root filesystem. NodeDiskSpaceLow below 20%, NodeDiskSpaceCritical below 10%."),
+    dict(id="kafka", sec=PLATFORM, title="Kafka reachable", unit="none", dir="high", amber=1, red=1,
+         expr='min(probe_success{job="blackbox-kafka-tcp"})', kind="bool", on="Up", off="Down", nv="No data",
+         desc="Whether the blackbox probe reaches the Kafka broker (alert KafkaBrokerUnavailable)."),
+    dict(id="probes", sec=PLATFORM, title="Failing health probes", unit="short", dir="low", amber=0.5, red=0.5,
+         expr='count(probe_success{job=~"blackbox-.*", job!="blackbox-kafka-tcp"} == 0) or vector(0)', kind="zero", zero="All OK", dec=0,
+         nv="No data", desc="Blackbox probes currently failing (alert BlackboxProbeFailing)."),
+    dict(id="argocd", sec=PLATFORM, title="ArgoCD apps out of sync", unit="short", dir="low", amber=0.5, red=0.5,
+         expr='count(argocd_app_info{sync_status!="Synced", name!~"clinvar-postgresql|grafana|kafka|postgresql|redis|cilium"}) or vector(0)',
+         kind="zero", zero="All synced", dec=0, nv="No data",
+         desc="Applications whose live state differs from git (alert ArgoCDAppOutOfSync, same exclusions)."),
+    dict(id="backup", sec=PLATFORM, title="Oldest database backup", unit="s", dir="low", amber=93600, red=180000,
+         expr='max(time() - kube_cronjob_status_last_successful_time{cronjob=~".*backup.*"})', dec=1, nv="No data",
+         desc="Age of the least recent successful nightly backup across the three databases. Amber above 26 h, red above 50 h; preliminary, no alert yet."),
+    dict(id="telemetry", sec=PLATFORM, title="Telemetry backends up", unit="none", dir="high", amber=1, red=1,
+         expr='min(up{job=~"loki|tempo|pyroscope"})', kind="bool", on="Up", off="Down", nv="No data",
+         desc="Loki, Tempo and Pyroscope are being scraped (alert TelemetryBackendDown)."),
+    dict(id="restarts", sec=PLATFORM, title="Restarting workloads", unit="short", dir="low", amber=0.5, red=0.5,
+         expr='count(increase(kube_pod_container_status_restarts_total[1h]) > 3) or vector(0)', kind="zero", zero="None", dec=0,
+         nv="No data", desc="Containers that restarted more than 3 times in the last hour (alert WorkloadRestartingFrequently)."),
+    dict(id="targets", sec=PLATFORM, title="Metric targets down", unit="short", dir="low", amber=0.5, red=0.5,
+         expr='count(up == 0) or vector(0)', kind="zero", zero="None", dec=0, nv="No data",
+         desc="Prometheus scrape targets that are not answering."),
+]
+
+GREEN, AMBER, RED, GREY = "green", "#f59e0b", "red", "#6b7280"
 
 
-def ratio(err, total, window):
-    # The same shape as the alert rules: errors over total, empty when there is no traffic.
-    return f"1 - ((sum(rate({err}[{window}])) or vector(0)) / (sum(rate({total}[{window}])) > 0))"
+def is_ok(s):
+    return f"({s['expr']}) < {s['red']}" if s["dir"] == "low" else f"({s['expr']}) >= {s['red']}"
 
 
-def api_dashboard():
-    intro = ("## api: is it meeting its targets?\n"
-             "Green means inside the target, amber means close, red means breached, grey means "
-             "no traffic or no data. Targets come from ADR 0020: at least 95% of requests succeed, "
-             "at least 90% on `GET /variants/lookup`, and p95 latency under 1 s (the canary's "
-             "preliminary threshold, ADR 0020 addendum 2026-08-17). Tiles use a 5-minute window, "
-             "the same as the alerts.")
+def is_bad(s):
+    return f"({s['expr']}) >= {s['red']}" if s["dir"] == "low" else f"({s['expr']}) < {s['red']}"
+
+
+def count_expr(pred):
+    return " + ".join(f"(count({pred(s)}) or vector(0))" for s in SLOS)
+
+
+def stat(pid, x, y, w, h, title, expr, unit, steps, desc, *, decimals=None, mappings=None, no_value="No data",
+         graph="none", instant=False, link=None, text_mode="value"):
+    d = {"unit": unit, "noValue": no_value, "mappings": mappings or [],
+         "thresholds": {"mode": "absolute", "steps": [{"color": c, "value": v} for c, v in steps]}}
+    if decimals is not None:
+        d["decimals"] = decimals
+    p = {"id": pid, "type": "stat", "title": title, "description": desc,
+         "gridPos": {"x": x, "y": y, "w": w, "h": h}, "datasource": DS,
+         "options": {"colorMode": "background", "graphMode": graph, "textMode": text_mode, "justifyMode": "center",
+                     "reduceOptions": {"calcs": ["lastNotNull"]}},
+         "fieldConfig": {"defaults": d, "overrides": []},
+         "targets": [{"refId": "A", "datasource": DS, "expr": expr, "instant": instant}]}
+    if link:
+        p["links"] = [{"title": "Details (Golden Signals)", "url": f"/d/{link}"}]
+    return p
+
+
+def slo_tile(pid, x, y, s):
+    if s["dir"] == "high":
+        steps = [(RED, None), (AMBER, s["red"]), (GREEN, s["amber"])]
+    else:
+        steps = [(GREEN, None), (AMBER, s["amber"]), (RED, s["red"])]
+    kind = s.get("kind")
+    if kind == "bool":
+        maps = [{"type": "value", "options": {"0": {"text": s["off"], "color": RED}, "1": {"text": s["on"], "color": GREEN}}}]
+        steps = [(RED, None), (GREEN, 1)]
+    elif kind == "zero":
+        maps = [{"type": "value", "options": {"0": {"text": s["zero"], "color": GREEN}}}]
+    else:
+        maps = []
+    maps.append({"type": "special", "options": {"match": "null+nan", "result": {"text": s["nv"], "color": GREY}}})
+    return stat(pid, x, y, 4, 5, s["title"], s["expr"], s["unit"], steps, s["desc"], decimals=s.get("dec"), mappings=maps,
+                no_value=s["nv"], graph="area", link=s.get("link"))
+
+
+def overview():
+    n = len(SLOS)
+    ok, bad = count_expr(is_ok), count_expr(is_bad)
+    legend = ("**Green** target met · **amber** met but close · **red** breached · **grey** no traffic or no data "
+              "(the market closed, or nothing called the service). Each tile is one SLO from ADR 0020 and uses the "
+              "same expression as its alert, over 5 minutes. Click a tile for the detailed dashboard.")
     panels = [
-        text(1, 0, 0, 24, 3, intro),
-        tile(2, 0, 3, "Is api running?", 'min(up{job="api"})', "none",
-             [("red", None), ("green", 1)], "1 when every api pod is being scraped, 0 when any is not.",
-             mappings=[{"type": "value", "options": {"0": {"text": "Down", "color": "red"},
-                                                      "1": {"text": "Running", "color": "green"}}}]),
-        tile(3, 6, 3, "Requests succeeding", ratio(API_ERR, API_TOTAL, "5m"), "percentunit",
-             GREEN_AMBER_RED_HIGH_IS_GOOD(0.95, 0.99),
-             "Share of requests that did not return a 5xx over 5 minutes. Target 95% (alert ApiHighErrorRate).",
-             decimals=1, mappings=no_traffic(), no_value="No traffic"),
-        tile(4, 12, 3, "Variant lookups succeeding", ratio(LOOKUP_ERR, LOOKUP_TOTAL, "5m"), "percentunit",
-             GREEN_AMBER_RED_HIGH_IS_GOOD(0.90, 0.97),
-             "Share of GET /variants/lookup calls (the clinvar-service dependency) that did not return a 5xx over 5 minutes. Target 90% (alert ApiVariantsLookupHighErrorRate).",
-             decimals=1, mappings=no_traffic(), no_value="No traffic"),
-        tile(5, 18, 3, "Typical slow request (p95)",
-             f"histogram_quantile(0.95, sum(rate({API_BUCKET}[5m])) by (le))", "s",
-             [("green", None), ("#f59e0b", 0.7), ("red", 1)],
-             "95% of requests finish faster than this, over 5 minutes. Target under 1 s (the canary's api-slo-check threshold; no alert).",
-             decimals=2, mappings=no_traffic(), no_value="No traffic"),
-        trend(6, 0, 9, "Success rate over time", ratio(API_ERR, API_TOTAL, "$__rate_interval"), "percentunit",
-              "Requests that did not return a 5xx.", legend="success"),
-        trend(7, 8, 9, "Slow-request time (p95) over time",
-              f"histogram_quantile(0.95, sum(rate({API_BUCKET}[$__rate_interval])) by (le))", "s",
-              "p95 request duration. The red line is the 1 s target.", line=1, legend="p95"),
-        trend(8, 16, 9, "Traffic", f"sum(rate({API_TOTAL}[$__rate_interval]))", "reqps",
-              "Requests per second, actuator endpoints excluded.", legend="requests/s"),
+        {"id": 1, "type": "text", "title": "", "transparent": True, "gridPos": {"x": 0, "y": 0, "w": 24, "h": 2},
+         "options": {"mode": "markdown", "content": legend}},
+        stat(2, 0, 2, 8, 4, f"SLOs meeting their target (of {n})", ok, "none",
+             [(RED, None), (AMBER, n - 3), (GREEN, n)], f"How many of the {n} SLOs below are inside their target right now.",
+             decimals=0, instant=True),
+        stat(3, 8, 2, 8, 4, "SLOs breached", bad, "none", [(GREEN, None), (RED, 1)],
+             "SLOs currently outside their target. These are the ones to look at first.", decimals=0, instant=True),
+        stat(4, 16, 2, 8, 4, "No data or no traffic", f"{n} - ({ok}) - ({bad})", "none", [(GREEN, None), (GREY, 1)],
+             "SLOs with nothing to measure right now: idle services, or a closed market. Not a problem by itself.",
+             decimals=0, instant=True),
     ]
-    return dashboard("slo-api", "SLO: api", ["api"], panels,
-                     [("api details (Golden Signals)", "/d/api-golden-signals")])
+    pid, y = 10, 6
+    for sec in (CLINVAR, MARKET, PLATFORM):
+        items = [s for s in SLOS if s["sec"] == sec]
+        panels.append({"id": pid, "type": "row", "title": sec, "collapsed": False, "panels": [],
+                       "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}})
+        pid += 1
+        y += 1
+        for i, s in enumerate(items):
+            panels.append(slo_tile(pid, (i % 6) * 4, y + (i // 6) * 5, s))
+            pid += 1
+        y += ((len(items) - 1) // 6 + 1) * 5
+    return {"uid": "slo-overview", "title": "SLO Overview", "tags": ["slo"], "timezone": "browser", "schemaVersion": 39,
+            "version": 1, "editable": False, "graphTooltip": 1, "time": {"from": "now-6h", "to": "now"},
+            "refresh": "30s", "panels": panels, "description": "Every SLO on one screen."}
 
 
-DASHBOARDS = {"slo-api": api_dashboard}
+DASHBOARDS = {"slo-overview": overview}
 
 
 # --- splice into grafana.yaml ------------------------------------------------
