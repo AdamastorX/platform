@@ -513,7 +513,19 @@ def splice(src, begin, end, block, anchor):
     return src.replace(anchor, block + "\n" + anchor, 1)
 
 
+def lint_slo_queries():
+    """#181: the SLOs dashboard may only read the slo:* recording rules, so it cannot disagree with the budget alert."""
+    for panel in slo_table()["panels"]:
+        for t in panel.get("targets", []):
+            if "slo:" not in t["expr"]:
+                sys.exit(f"SLOs dashboard panel {panel['title']!r} does not read slo:* series: {t['expr']}")
+            for raw in ("http_server_requests", "_bucket", "_total", "kube_", "node_", "up{"):
+                if raw in t["expr"]:
+                    sys.exit(f"SLOs dashboard panel {panel['title']!r} reads raw metrics ({raw}): {t['expr']}")
+
+
 def main():
+    lint_slo_queries()
     src = TARGET.read_text()
     new = splice(src, PROV_BEGIN, PROV_END, render_provider(),
                  "        dashboards:\n          golden-signals:")
