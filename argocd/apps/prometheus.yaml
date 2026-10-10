@@ -1255,6 +1255,19 @@ spec:
                     annotations:
                       summary: "watchlist-service has dead-lettered subscriber notifications"
                       description: "watchlist_delivery_dlq_depth has been above 0 for 5m -- at least one subscriber's ntfy target has permanently failed delivery after app.delivery.max-attempts retries. See ADR 0020's SLO table and ADR 0026 (outbox-table-plus-relay)."
+                  # backlog #181: a declared SLO (ADR 0020 addendum 2026-10-10) has
+                  # spent its 7d error budget. Slow, whole-window signal on top of
+                  # the fast threshold alerts above; reads the same slo:* series as
+                  # the SLOs dashboard, so the two cannot disagree. Not burn-rate
+                  # alerting (ADR 0021).
+                  - alert: SLOErrorBudgetExhausted
+                    expr: slo:error_budget_remaining:ratio7d < 0
+                    for: 1h
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "SLO {{ $labels.slo }} has exhausted its 7d error budget"
+                      description: "Over the last 7 days {{ $labels.slo }} is below its objective (error budget remaining {{ $value | humanizePercentage }}). See the SLOs dashboard and observability/runbooks/SLOErrorBudgetExhausted.md."
                   # backlog #56. Real threshold, not invented: >0.2 req/s
                   # sustained is roughly one rejection every 5s, well
                   # above what either real caller's normal, correctly-

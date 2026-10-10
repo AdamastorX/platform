@@ -45,6 +45,11 @@ spec:
     helm:
       valuesObject:
         fullnameOverride: grafana
+        # backlog #181: the SLO table is the Grafana home page; Service health, the
+        # overviews and the Golden Signals dashboards are one click away.
+        grafana.ini:
+          dashboards:
+            default_home_dashboard_path: /var/lib/grafana/dashboards/slo/slo-table.json
         # backlog #114: found live 2026-08-07 -- no resources block since
         # this chart's first deploy (ADR 0014). Real measured usage
         # (`kubectl top pod`) ~12m CPU/168Mi memory (dashboard rendering
