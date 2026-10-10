@@ -141,8 +141,18 @@ def is_bad(s):
     return f"({s['expr']}) >= {s['red']}" if s["dir"] == "low" else f"({s['expr']}) < {s['red']}"
 
 
-def count_expr(pred):
-    return " + ".join(f"(count({pred(s)}) or vector(0))" for s in SLOS)
+# Declared SLOs (ADR 0020 addendum 2026-10-10) are NOT tiles: they come from the
+# slo:* recording rules (#177) and are shown by slo_table(). What stays in
+# SLOS is health and saturation signals, shown on "Service health" (#180).
+SLO_TILE_IDS = {"api-ok", "lookup-ok", "api-p95", "workers-ok", "news-ok", "sent-ok", "agg-ok", "fresh"}
+PIPELINES, PLATFORM_H = "Pipelines and queues", "Platform"
+HEALTH_PIPELINE_IDS = {"workers-lag", "dlq", "clinvar-fresh", "feed-live", "sent-lag", "agg-lag"}
+HEALTH = [dict(s, sec=PIPELINES if s["id"] in HEALTH_PIPELINE_IDS else PLATFORM_H)
+          for s in SLOS if s["id"] not in SLO_TILE_IDS]
+
+
+def count_expr(pred, items):
+    return " + ".join(f"(count({pred(s)}) or vector(0))" for s in items)
 
 
 def stat(pid, x, y, w, h, title, expr, unit, steps, desc, *, decimals=None, mappings=None, no_value="No data",
@@ -180,68 +190,157 @@ def slo_tile(pid, x, y, s):
                 no_value=s["nv"], graph="area", link=s.get("link"))
 
 
-def overview():
-    n = len(SLOS)
-    ok, bad = count_expr(is_ok), count_expr(is_bad)
-    legend = ("**Green** target met · **amber** met but close · **red** breached · **grey** no traffic or no data "
-              "(the market closed, or nothing called the service). Each tile is one SLO from ADR 0020 and uses the "
-              "same expression as its alert, over 5 minutes. Click a tile for the detailed dashboard.")
+def service_health():
+    items = HEALTH
+    n = len(items)
+    ok, bad = count_expr(is_ok, items), count_expr(is_bad, items)
+    legend = ("**Service health, not SLOs.** These are health and saturation signals: queue backlogs, liveness, disk, "
+              "backups, sync state. The SLOs (objective, window, error budget) are on the **SLO table** dashboard. "
+              "**Green** healthy · **amber** close to its alert · **red** unhealthy · **grey** no data or nothing to "
+              "measure. Each tile's description names its alert, or says there is none and the threshold is preliminary. "
+              "Click a tile for the detailed dashboard.")
     panels = [
-        {"id": 1, "type": "text", "title": "", "transparent": True, "gridPos": {"x": 0, "y": 0, "w": 24, "h": 2},
+        {"id": 1, "type": "text", "title": "", "transparent": True, "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
          "options": {"mode": "markdown", "content": legend}},
-        stat(2, 0, 2, 8, 4, f"SLOs meeting their target (of {n})", ok, "none",
-             [(RED, None), (AMBER, n - 3), (GREEN, n)], f"How many of the {n} SLOs below are inside their target right now.",
+        stat(2, 0, 3, 8, 4, f"Signals healthy (of {n})", ok, "none",
+             [(RED, None), (AMBER, n - 3), (GREEN, n)], f"How many of the {n} signals below are inside their threshold right now.",
              decimals=0, instant=True),
-        stat(3, 8, 2, 8, 4, "SLOs breached", bad, "none", [(GREEN, None), (RED, 1)],
-             "SLOs currently outside their target. These are the ones to look at first.", decimals=0, instant=True),
-        stat(4, 16, 2, 8, 4, "No data or no traffic", f"{n} - ({ok}) - ({bad})", "none", [(GREEN, None), (GREY, 1)],
-             "SLOs with nothing to measure right now: idle services, or a closed market. Not a problem by itself.",
+        stat(3, 8, 3, 8, 4, "Signals unhealthy", bad, "none", [(GREEN, None), (RED, 1)],
+             "Signals outside their threshold. Look at these first.", decimals=0, instant=True),
+        stat(4, 16, 3, 8, 4, "No data", f"{n} - ({ok}) - ({bad})", "none", [(GREEN, None), (GREY, 1)],
+             "Signals with nothing to measure right now (for example the market is closed). Not a problem by itself.",
              decimals=0, instant=True),
     ]
-    pid, y = 10, 6
-    for sec in (CLINVAR, MARKET, PLATFORM):
-        items = [s for s in SLOS if s["sec"] == sec]
+    pid, y = 10, 7
+    for sec in (PIPELINES, PLATFORM_H):
+        sec_items = [s for s in items if s["sec"] == sec]
         panels.append({"id": pid, "type": "row", "title": sec, "collapsed": False, "panels": [],
                        "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}})
         pid += 1
         y += 1
-        for i, s in enumerate(items):
+        for i, s in enumerate(sec_items):
             panels.append(slo_tile(pid, (i % 6) * 4, y + (i // 6) * 5, s))
             pid += 1
-        y += ((len(items) - 1) // 6 + 1) * 5
-    return {"uid": "slo-overview", "title": "SLO Overview", "tags": ["slo"], "timezone": "browser", "schemaVersion": 39,
+        y += ((len(sec_items) - 1) // 6 + 1) * 5
+    return {"uid": "service-health", "title": "Service health", "tags": ["health"], "timezone": "browser",
+            "schemaVersion": 39, "version": 1, "editable": False, "graphTooltip": 1,
+            "time": {"from": "now-6h", "to": "now"}, "refresh": "30s", "panels": panels,
+            "description": "Health and saturation signals that are not SLOs."}
+
+
+# --- the SLO table (#178): reads ONLY slo:* recording rules ------------------
+
+# Declared in ADR 0020's 2026-10-10 addendum but not measurable today, and what unblocks each.
+DORMANT = [
+    ("variants-lookup", "no requests in 6 days", "#183 synthetic traffic"),
+    ("clinvar-lookup", "the metric has no status label", "#21e"),
+    ("clinvar-ingestion-freshness", "time-based, needs a last-success gauge", "#184"),
+    ("workers-listener", "workers does not export the listener metric, so its alert cannot fire", "#185"),
+    ("watchlist-delivery", "no delivery attempts in 6 days", "none yet"),
+]
+
+
+def table_query(ref, expr):
+    return {"refId": ref, "datasource": DS, "expr": expr, "instant": True, "format": "table"}
+
+
+def slo_table():
+    pt = lambda ref, name, unit, dec, extra=None: {
+        "matcher": {"id": "byName", "options": name},
+        "properties": [{"id": "unit", "value": unit}, {"id": "decimals", "value": dec}] + (extra or [])}
+    status_map = [{"type": "value", "options": {
+        "0": {"text": "Breached", "color": "red"}, "1": {"text": "At risk", "color": "#f59e0b"},
+        "2": {"text": "Met", "color": "green"}}},
+        {"type": "special", "options": {"match": "null+nan", "result": {"text": "Insufficient events", "color": GREY}}}]
+    cell_bg = {"id": "custom.cellOptions", "value": {"type": "color-background"}}
+    budget_colors = {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+        {"color": "red", "value": None}, {"color": "#f59e0b", "value": 0}, {"color": "green", "value": 0.25}]}}
+    table = {
+        "id": 10, "type": "table", "title": "Declared SLOs: objective, 7-day window, error budget",
+        "description": "One row per declared SLO (ADR 0020 addendum, 2026-10-10). All columns read the slo:* recording rules. "
+                       "Compliance = good / valid events over the window. Budget remaining = 1 - (1 - compliance) / (1 - objective). "
+                       "Status: Breached below 0, At risk below 25%, otherwise Met. An SLO with too few events shows Insufficient events.",
+        "gridPos": {"x": 0, "y": 6, "w": 24, "h": 9}, "datasource": DS,
+        "targets": [table_query("A", "slo:objective:ratio"), table_query("B", "slo:valid:increase7d"),
+                    table_query("C", "slo:compliance:ratio7d"), table_query("D", "slo:error_budget_remaining:ratio7d"),
+                    table_query("E", "(slo:error_budget_remaining:ratio7d >= bool 0.25) + (slo:error_budget_remaining:ratio7d >= bool 0)")],
+        "transformations": [
+            {"id": "joinByField", "options": {"byField": "slo", "mode": "outer"}},
+            {"id": "organize", "options": {
+                "excludeByName": {"Time": True, "Time 1": True, "Time 2": True, "Time 3": True, "Time 4": True, "Time 5": True,
+                                  "__name__": True, "service": True, "service 1": True, "service 2": True, "service 3": True,
+                                  "service 4": True, "service 5": True},
+                "renameByName": {"slo": "SLO", "Value #A": "Objective", "Value #B": "Events in window", "Value #C": "Compliance",
+                                 "Value #D": "Budget remaining", "Value #E": "Status"},
+                "indexByName": {"SLO": 0, "Objective": 1, "Events in window": 2, "Compliance": 3, "Budget remaining": 4, "Status": 5}}},
+            {"id": "sortBy", "options": {"sort": [{"field": "SLO"}]}}],
+        "options": {"showHeader": True, "cellHeight": "md"},
+        "fieldConfig": {"defaults": {"custom": {"align": "left"}}, "overrides": [
+            pt("Objective", "Objective", "percentunit", 2),
+            pt("Events in window", "Events in window", "short", 0),
+            pt("Compliance", "Compliance", "percentunit", 3),
+            pt("Budget remaining", "Budget remaining", "percentunit", 1, [cell_bg, budget_colors]),
+            {"matcher": {"id": "byName", "options": "Status"},
+             "properties": [{"id": "mappings", "value": status_map}, cell_bg,
+                            {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": GREY, "value": None}]}}]}]},
+    }
+    kinds = [("SLOs measured", "count(slo:valid:increase7d)", [(GREY, None), (GREEN, 1)], "Declared SLOs with events in the window."),
+             ("Met", "count(slo:error_budget_remaining:ratio7d >= 0.25) or vector(0)", [(GREY, None), (GREEN, 1)],
+              "Error budget remaining is 25% or more."),
+             ("At risk", "count((slo:error_budget_remaining:ratio7d >= 0) < 0.25) or vector(0)", [(GREEN, None), (AMBER, 1)],
+              "Budget remaining is below 25% but not exhausted."),
+             ("Breached", "count(slo:error_budget_remaining:ratio7d < 0) or vector(0)", [(GREEN, None), (RED, 1)],
+              "Error budget exhausted: the SLO is not being met over the window."),
+             ("Insufficient events", "count(slo:valid:increase7d) - count(slo:error_budget_remaining:ratio7d)", [(GREEN, None), (GREY, 1)],
+              "Too few events in the window to compute compliance. Not a failure.")]
+    panels = [
+        {"id": 1, "type": "text", "title": "", "transparent": True, "gridPos": {"x": 0, "y": 0, "w": 24, "h": 2},
+         "options": {"mode": "markdown", "content":
+                     "**An SLO is an indicator (good / valid events), an objective and a window.** Window: rolling 7 days "
+                     "(history starts 2026-10-03; the 28-day window is shown from about 2026-10-31). Objectives, definitions and "
+                     "the dormant SLOs are in the ADR 0020 addendum of 2026-10-10."}}]
+    for i, (t, e, steps, d) in enumerate(kinds):
+        x = [0, 5, 10, 14, 19][i]
+        w = [5, 5, 4, 5, 5][i]
+        panels.append(stat(2 + i, x, 2, w, 4, t, e, "none", steps, d, decimals=0, instant=True))
+    panels.append(table)
+    rows = "\n".join(f"| `{n}` | {why} | {fix} |" for n, why, fix in DORMANT)
+    panels.append({"id": 11, "type": "text", "title": "Declared but not measurable yet (dormant)", "gridPos": {"x": 0, "y": 15, "w": 24, "h": 7},
+                   "options": {"mode": "markdown", "content":
+                               "These SLOs are declared in the ADR but cannot be computed today.\n\n| SLO | Why | Unblocked by |\n|---|---|---|\n" + rows}})
+    return {"uid": "slo-table", "title": "SLOs", "tags": ["slo"], "timezone": "browser", "schemaVersion": 39,
             "version": 1, "editable": False, "graphTooltip": 1, "time": {"from": "now-6h", "to": "now"},
-            "refresh": "30s", "panels": panels, "description": "Every SLO on one screen."}
+            "refresh": "1m", "panels": panels, "description": "Declared SLOs with objective, window and error budget."}
 
 
-DASHBOARDS = {"slo-overview": overview}
+# folder title -> {dashboard key: builder}; one Grafana provider per set
+SETS = {"slo": ("SLO", {"slo-table": slo_table}),
+        "health": ("Service health", {"service-health": service_health})}
 
 
 # --- splice into grafana.yaml ------------------------------------------------
 
 def render_block():
-    out = [DASH_BEGIN, "          slo:"]
-    for key, fn in DASHBOARDS.items():
-        out.append(f"            {key}:")
-        out.append("              json: |")
-        for line in json.dumps(fn(), indent=2).split("\n"):
-            out.append("                " + line)
+    out = [DASH_BEGIN]
+    for set_key, (_, dashes) in SETS.items():
+        out.append(f"          {set_key}:")
+        for key, fn in dashes.items():
+            out.append(f"            {key}:")
+            out.append("              json: |")
+            for line in json.dumps(fn(), indent=2).split("\n"):
+                out.append("                " + line)
     out.append(DASH_END)
     return "\n".join(out)
 
 
 def render_provider():
-    return "\n".join([
-        PROV_BEGIN,
-        "              - name: slo",
-        "                orgId: 1",
-        "                folder: 'SLO'",
-        "                type: file",
-        "                disableDeletion: false",
-        "                editable: false",
-        "                options:",
-        "                  path: /var/lib/grafana/dashboards/slo",
-        PROV_END])
+    out = [PROV_BEGIN]
+    for set_key, (folder, _) in SETS.items():
+        out += [f"              - name: {set_key}", "                orgId: 1", f"                folder: '{folder}'",
+                "                type: file", "                disableDeletion: false", "                editable: false",
+                "                options:", f"                  path: /var/lib/grafana/dashboards/{set_key}"]
+    out.append(PROV_END)
+    return "\n".join(out)
 
 
 def splice(src, begin, end, block, anchor):
