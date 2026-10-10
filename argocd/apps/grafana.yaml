@@ -5346,13 +5346,13 @@ spec:
                     {
                       "id": 20,
                       "type": "table",
-                      "title": "Every namespace at a glance",
-                      "description": "One row per namespace: running pods, restarts in the last 24 hours, CPU, memory, and memory as a share of its limits.",
+                      "title": "Every workload at a glance",
+                      "description": "One row per workload (Deployment, StatefulSet, DaemonSet): running pods, restarts in the last 24 hours, CPU, memory, and memory as a share of its limits. Click a column header to sort.",
                       "gridPos": {
                         "x": 0,
                         "y": 6,
                         "w": 24,
-                        "h": 11
+                        "h": 14
                       },
                       "datasource": {
                         "type": "prometheus",
@@ -5365,7 +5365,7 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum by (namespace)(kube_pod_status_phase{phase=\"Running\"})",
+                          "expr": "label_join(sum by (namespace, workload)((kube_pod_status_phase{phase=\"Running\"}) * on(namespace, pod) group_left(workload) (label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)-[a-z0-9]{8,10}\") or label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind!=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)\"))), \"service\", \"/\", \"namespace\", \"workload\")",
                           "instant": true,
                           "format": "table"
                         },
@@ -5375,7 +5375,7 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum by (namespace)(round(increase(kube_pod_container_status_restarts_total[24h])))",
+                          "expr": "sum by (service)(label_join(sum by (namespace, workload)((round(increase(kube_pod_container_status_restarts_total[24h]))) * on(namespace, pod) group_left(workload) (label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)-[a-z0-9]{8,10}\") or label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind!=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)\"))), \"service\", \"/\", \"namespace\", \"workload\"))",
                           "instant": true,
                           "format": "table"
                         },
@@ -5385,7 +5385,7 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum by (namespace)(rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]))",
+                          "expr": "sum by (service)(label_join(sum by (namespace, workload)((rate(container_cpu_usage_seconds_total{container!=\"\"}[5m])) * on(namespace, pod) group_left(workload) (label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)-[a-z0-9]{8,10}\") or label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind!=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)\"))), \"service\", \"/\", \"namespace\", \"workload\"))",
                           "instant": true,
                           "format": "table"
                         },
@@ -5395,7 +5395,7 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum by (namespace)(container_memory_working_set_bytes{container!=\"\"})",
+                          "expr": "sum by (service)(label_join(sum by (namespace, workload)((container_memory_working_set_bytes{container!=\"\"}) * on(namespace, pod) group_left(workload) (label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)-[a-z0-9]{8,10}\") or label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind!=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)\"))), \"service\", \"/\", \"namespace\", \"workload\"))",
                           "instant": true,
                           "format": "table"
                         },
@@ -5405,7 +5405,7 @@ spec:
                             "type": "prometheus",
                             "uid": "prometheus"
                           },
-                          "expr": "sum by (namespace)(container_memory_working_set_bytes{container!=\"\"}) / sum by (namespace)(kube_pod_container_resource_limits{resource=\"memory\"})",
+                          "expr": "sum by (service)(label_join(sum by (namespace, workload)((container_memory_working_set_bytes{container!=\"\"}) * on(namespace, pod) group_left(workload) (label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)-[a-z0-9]{8,10}\") or label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind!=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)\"))), \"service\", \"/\", \"namespace\", \"workload\")) / sum by (service)(label_join(sum by (namespace, workload)((kube_pod_container_resource_limits{resource=\"memory\"}) * on(namespace, pod) group_left(workload) (label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)-[a-z0-9]{8,10}\") or label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind!=\"ReplicaSet\"}), \"workload\", \"$1\", \"owner_name\", \"(.*)\"))), \"service\", \"/\", \"namespace\", \"workload\"))",
                           "instant": true,
                           "format": "table"
                         }
@@ -5414,7 +5414,7 @@ spec:
                         {
                           "id": "joinByField",
                           "options": {
-                            "byField": "namespace",
+                            "byField": "service",
                             "mode": "outer"
                           }
                         },
@@ -5427,10 +5427,12 @@ spec:
                               "Time 2": true,
                               "Time 3": true,
                               "Time 4": true,
-                              "Time 5": true
+                              "Time 5": true,
+                              "service": true
                             },
                             "renameByName": {
                               "namespace": "Namespace",
+                              "workload": "Workload",
                               "Value #A": "Pods running",
                               "Value #B": "Restarts (24h)",
                               "Value #C": "CPU (cores)",
@@ -5439,11 +5441,12 @@ spec:
                             },
                             "indexByName": {
                               "Namespace": 0,
-                              "Pods running": 1,
-                              "Restarts (24h)": 2,
-                              "CPU (cores)": 3,
-                              "Memory": 4,
-                              "Memory of limits": 5
+                              "Workload": 1,
+                              "Pods running": 2,
+                              "Restarts (24h)": 3,
+                              "CPU (cores)": 4,
+                              "Memory": 5,
+                              "Memory of limits": 6
                             }
                           }
                         },
@@ -5540,7 +5543,7 @@ spec:
                               },
                               {
                                 "id": "decimals",
-                                "value": 2
+                                "value": 3
                               }
                             ]
                           },
@@ -5622,7 +5625,7 @@ spec:
                       "panels": [],
                       "gridPos": {
                         "x": 0,
-                        "y": 17,
+                        "y": 20,
                         "w": 24,
                         "h": 1
                       }
@@ -5634,7 +5637,7 @@ spec:
                       "description": "HTTP request rate per service.",
                       "gridPos": {
                         "x": 0,
-                        "y": 18,
+                        "y": 21,
                         "w": 12,
                         "h": 8
                       },
@@ -5667,7 +5670,7 @@ spec:
                       "description": "95% of requests finish faster than this.",
                       "gridPos": {
                         "x": 12,
-                        "y": 18,
+                        "y": 21,
                         "w": 12,
                         "h": 8
                       },
@@ -5701,7 +5704,7 @@ spec:
                       "panels": [],
                       "gridPos": {
                         "x": 0,
-                        "y": 26,
+                        "y": 29,
                         "w": 24,
                         "h": 1
                       }
@@ -5713,7 +5716,7 @@ spec:
                       "description": "The eight namespaces using the most CPU.",
                       "gridPos": {
                         "x": 0,
-                        "y": 27,
+                        "y": 30,
                         "w": 12,
                         "h": 8
                       },
@@ -5746,7 +5749,7 @@ spec:
                       "description": "The eight namespaces using the most memory.",
                       "gridPos": {
                         "x": 12,
-                        "y": 27,
+                        "y": 30,
                         "w": 12,
                         "h": 8
                       },
@@ -5779,7 +5782,7 @@ spec:
                       "description": "Heap in use per JVM service.",
                       "gridPos": {
                         "x": 0,
-                        "y": 35,
+                        "y": 38,
                         "w": 12,
                         "h": 8
                       },
@@ -5812,7 +5815,7 @@ spec:
                       "description": "Messages waiting per consuming service.",
                       "gridPos": {
                         "x": 12,
-                        "y": 35,
+                        "y": 38,
                         "w": 12,
                         "h": 8
                       },

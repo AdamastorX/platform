@@ -408,25 +408,41 @@ def infrastructure_overview():
                 "The node and the platform: load, memory, disk, network, pods and GitOps.")
 
 
+# Pod metric -> its workload (Deployment, StatefulSet, DaemonSet, ...), via kube_pod_owner. A ReplicaSet's name is
+# "<deployment>-<hash>", so the hash is stripped for ReplicaSets only (a StatefulSet called "x-postgresql" must keep its name).
+_OWN = ('(label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind="ReplicaSet"}), "workload", "$1", "owner_name", "(.*)-[a-z0-9]{8,10}")'
+        ' or label_replace(max by (namespace, pod, owner_name)(kube_pod_owner{owner_kind!="ReplicaSet"}), "workload", "$1", "owner_name", "(.*)"))')
+
+
+def by_workload(expr):
+    return f'sum by (namespace, workload)(({expr}) * on(namespace, pod) group_left(workload) {_OWN})'
+
+
+def by_service(expr):
+    """Same, reduced to one `service` label ("namespace/workload") so tables can be joined on it."""
+    return f'sum by (service)(label_join({by_workload(expr)}, "service", "/", "namespace", "workload"))'
+
+
 def services_overview():
-    ns = lambda e: f"sum by (namespace)({e})"
-    tq = lambda ref, e: table_query(ref, e)
+    mem = 'container_memory_working_set_bytes{container!=""}'
+    running = 'kube_pod_status_phase{phase="Running"}'
+    running_by_workload = 'label_join(' + by_workload(running) + ', "service", "/", "namespace", "workload")'
     table = {
-        "id": 20, "type": "table", "title": "Every namespace at a glance",
-        "description": "One row per namespace: running pods, restarts in the last 24 hours, CPU, memory, and memory as a share of its limits.",
-        "gridPos": {"x": 0, "y": 6, "w": 24, "h": 11}, "datasource": DS,
-        "targets": [tq("A", ns('kube_pod_status_phase{phase="Running"}')),
-                    tq("B", ns('round(increase(kube_pod_container_status_restarts_total[24h]))')),
-                    tq("C", ns('rate(container_cpu_usage_seconds_total{container!=""}[5m])')),
-                    tq("D", ns('container_memory_working_set_bytes{container!=""}')),
-                    tq("E", ns('container_memory_working_set_bytes{container!=""}') + ' / ' + ns('kube_pod_container_resource_limits{resource="memory"}'))],
+        "id": 20, "type": "table", "title": "Every workload at a glance",
+        "description": "One row per workload (Deployment, StatefulSet, DaemonSet): running pods, restarts in the last 24 hours, CPU, memory, and memory as a share of its limits. Click a column header to sort.",
+        "gridPos": {"x": 0, "y": 6, "w": 24, "h": 14}, "datasource": DS,
+        "targets": [table_query("A", running_by_workload),
+                    table_query("B", by_service('round(increase(kube_pod_container_status_restarts_total[24h]))')),
+                    table_query("C", by_service('rate(container_cpu_usage_seconds_total{container!=""}[5m])')),
+                    table_query("D", by_service(mem)),
+                    table_query("E", by_service(mem) + " / " + by_service('kube_pod_container_resource_limits{resource="memory"}'))],
         "transformations": [
-            {"id": "joinByField", "options": {"byField": "namespace", "mode": "outer"}},
+            {"id": "joinByField", "options": {"byField": "service", "mode": "outer"}},
             {"id": "organize", "options": {
-                "excludeByName": {f"Time{suf}": True for suf in ["", " 1", " 2", " 3", " 4", " 5"]},
-                "renameByName": {"namespace": "Namespace", "Value #A": "Pods running", "Value #B": "Restarts (24h)", "Value #C": "CPU (cores)",
-                                 "Value #D": "Memory", "Value #E": "Memory of limits"},
-                "indexByName": {"Namespace": 0, "Pods running": 1, "Restarts (24h)": 2, "CPU (cores)": 3, "Memory": 4, "Memory of limits": 5}}},
+                "excludeByName": {**{f"Time{suf}": True for suf in ["", " 1", " 2", " 3", " 4", " 5"]}, "service": True},
+                "renameByName": {"namespace": "Namespace", "workload": "Workload", "Value #A": "Pods running", "Value #B": "Restarts (24h)",
+                                 "Value #C": "CPU (cores)", "Value #D": "Memory", "Value #E": "Memory of limits"},
+                "indexByName": {"Namespace": 0, "Workload": 1, "Pods running": 2, "Restarts (24h)": 3, "CPU (cores)": 4, "Memory": 5, "Memory of limits": 6}}},
             {"id": "sortBy", "options": {"sort": [{"field": "Memory", "desc": True}]}}],
         "options": {"showHeader": True, "cellHeight": "sm"},
         "fieldConfig": {"defaults": {"custom": {"align": "left"}}, "overrides": [
@@ -435,7 +451,7 @@ def services_overview():
                 {"id": "unit", "value": "none"}, {"id": "decimals", "value": 0},
                 {"id": "custom.cellOptions", "value": {"type": "color-text"}},
                 {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "#f59e0b", "value": 1}, {"color": "red", "value": 5}]}}]},
-            {"matcher": {"id": "byName", "options": "CPU (cores)"}, "properties": [{"id": "unit", "value": "none"}, {"id": "decimals", "value": 2}]},
+            {"matcher": {"id": "byName", "options": "CPU (cores)"}, "properties": [{"id": "unit", "value": "none"}, {"id": "decimals", "value": 3}]},
             {"matcher": {"id": "byName", "options": "Memory"}, "properties": [{"id": "unit", "value": "bytes"}, {"id": "decimals", "value": 0}]},
             {"matcher": {"id": "byName", "options": "Memory of limits"}, "properties": [
                 {"id": "unit", "value": "percentunit"}, {"id": "decimals", "value": 0},
@@ -458,18 +474,18 @@ def services_overview():
           info_stat(7, 20, 2, 4, 4, "Server errors/s", f'sum(rate(http_server_requests_seconds_count{{outcome="SERVER_ERROR"}}[5m])) or vector(0)',
                     "reqps", "5xx responses per second across the services.", 3, [(GREEN, None), (RED, 0.0001)]),
           table,
-          row(30, 17, "Traffic"),
-          ts(31, 0, 18, 12, "Requests per second, by service", [(f"sum by (job)(rate({HTTP}[5m]))", "{{job}}")], "reqps", "HTTP request rate per service."),
-          ts(32, 12, 18, 12, "Response time p95, by service",
+          row(30, 20, "Traffic"),
+          ts(31, 0, 21, 12, "Requests per second, by service", [(f"sum by (job)(rate({HTTP}[5m]))", "{{job}}")], "reqps", "HTTP request rate per service."),
+          ts(32, 12, 21, 12, "Response time p95, by service",
              [('histogram_quantile(0.95, sum by (job, le)(rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[5m])))', "{{job}}")],
              "s", "95% of requests finish faster than this."),
-          row(33, 26, "Resources"),
-          ts(34, 0, 27, 12, "CPU by namespace (cores)", [('topk(8, sum by (namespace)(rate(container_cpu_usage_seconds_total{container!=""}[5m])))', "{{namespace}}")],
+          row(33, 29, "Resources"),
+          ts(34, 0, 30, 12, "CPU by namespace (cores)", [('topk(8, sum by (namespace)(rate(container_cpu_usage_seconds_total{container!=""}[5m])))', "{{namespace}}")],
              "none", "The eight namespaces using the most CPU."),
-          ts(35, 12, 27, 12, "Memory by namespace", [('topk(8, sum by (namespace)(container_memory_working_set_bytes{container!=""}))', "{{namespace}}")],
+          ts(35, 12, 30, 12, "Memory by namespace", [('topk(8, sum by (namespace)(container_memory_working_set_bytes{container!=""}))', "{{namespace}}")],
              "bytes", "The eight namespaces using the most memory."),
-          ts(36, 0, 35, 12, "JVM heap by service", [('sum by (job)(jvm_memory_used_bytes{area="heap"})', "{{job}}")], "bytes", "Heap in use per JVM service."),
-          ts(37, 12, 35, 12, "Kafka consumer lag", [('sum by (job)(kafka_consumer_fetch_manager_records_lag)', "{{job}}")], "none",
+          ts(36, 0, 38, 12, "JVM heap by service", [('sum by (job)(jvm_memory_used_bytes{area="heap"})', "{{job}}")], "bytes", "Heap in use per JVM service."),
+          ts(37, 12, 38, 12, "Kafka consumer lag", [('sum by (job)(kafka_consumer_fetch_manager_records_lag)', "{{job}}")], "none",
              "Messages waiting per consuming service.")]
     return dash("services-overview", "Services overview", ["overview", "services"], P,
                 "What is running and how it behaves: pods, restarts, traffic, resources.")
