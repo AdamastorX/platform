@@ -135,7 +135,19 @@ spec:
           # connect / 3s read timeout it previously had none of at all.
           # A real decision recorded back in 2026-08-09 (ADR 0040) that
           # was never actually coded until now.
-          image: ghcr.io/adamastorx/api:e26a01e0ce2796a8b3c0124f249bf2f7878e6a61
+          # backlog #163: platform#238 removed the pyroscope-agent-fetch
+          # init container and repointed JAVA_TOOL_OPTIONS at the baked-in
+          # path, but this tag stayed at e26a01e (2026-08-15, no baked
+          # jar) -- a real revision-4 RolloutAborted, Degraded, since
+          # 2026-10-09T03:02:35Z, with the stable revision 3 pod the only
+          # thing still serving. Bumped to fe72fd4 (services#96's own
+          # merge commit, build-publish succeeded 03:01:10Z the same
+          # morning) -- the first real build that actually contains the
+          # baked-in jar. See #163's own AC for what still needs live
+          # confirmation after this lands (canary Healthy, no init
+          # containers, real Pyroscope samples) before api-network-
+          # policies is safe to sync.
+          image: ghcr.io/adamastorx/api:fe72fd45434b7c51085e16c3913c7a5e7f909749
           ports:
             - name: http
               containerPort: 8080
