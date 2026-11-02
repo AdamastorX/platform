@@ -34,7 +34,7 @@ spec:
   source:
     repoURL: https://grafana.github.io/helm-charts
     chart: beyla
-    targetRevision: 1.16.10
+    targetRevision: 1.16.17
     helm:
       valuesObject:
         fullnameOverride: beyla
